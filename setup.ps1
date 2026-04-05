@@ -34,6 +34,7 @@ param(
     [switch]$Docker,
     [switch]$Native,
     [switch]$Uninstall,
+    [string]$OllamaUrl = "",
     [ValidateRange(1,5)][int]$Tier = 0
 )
 
@@ -53,17 +54,19 @@ Write-Host "  +========================================================+" -Foreg
 Write-Host ""
 
 if ($Help) {
-    Write-Host "Usage: .\setup.ps1 [-Docker|-Native] [-Cpu] [-Tier <1-5>] [-Coder] [-Uninstall]"
+    Write-Host "Usage: .\setup.ps1 [-Docker|-Native] [-Cpu] [-Tier <1-5>] [-Coder] [-OllamaUrl <URL>] [-Uninstall]"
     Write-Host ""
     Write-Host "Install modes:"
-    Write-Host "  -Docker      Run everything in Docker containers (needs Docker Desktop)"
-    Write-Host "  -Native      Install directly on the host (recommended for VMs)"
+    Write-Host "  -Docker          Run everything in Docker containers (needs Docker Desktop)"
+    Write-Host "  -Native          Install directly on the host (recommended for VMs)"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -Cpu         Run without GPU (CPU-only inference, uses qwen3.5:4b)"
-    Write-Host "  -Tier <N>    Skip the interactive menu and use tier N directly"
-    Write-Host "  -Coder       Use qwen3-coder (code-specialized) instead of gemma4 for tiers 4-5"
-    Write-Host "  -Uninstall   Remove The Librarian (Docker containers/volumes or native install)"
+    Write-Host "  -Cpu             Run without GPU (CPU-only inference, uses qwen3.5:4b)"
+    Write-Host "  -Tier <N>        Skip the interactive menu and use tier N directly"
+    Write-Host "  -Coder           Use qwen3-coder (code-specialized) instead of gemma4 for tiers 4-5"
+    Write-Host "  -OllamaUrl <URL> Use a remote Ollama server (e.g. http://192.168.1.100:11434)"
+    Write-Host "                   Skips local Ollama install. Model must be pulled on the remote."
+    Write-Host "  -Uninstall       Remove The Librarian (Docker containers/volumes or native install)"
     Write-Host ""
     Write-Host "Tiers:"
     Write-Host "  1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM"
@@ -307,6 +310,59 @@ if ($InstallMode -eq "") {
 
 Write-Info "Install mode: $InstallMode"
 
+# -- Ollama location ----------------------------------------------------------
+if ($OllamaUrl -eq "") {
+    Write-Host ""
+    Write-Host "  Where is your Ollama server?" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1)  Local - Install and run Ollama on this machine (default)" -ForegroundColor Cyan
+    Write-Host "    2)  Remote - Connect to Ollama running on another machine" -ForegroundColor Cyan
+    Write-Host "        (e.g. a GPU server on your network, or the host machine)" -ForegroundColor Yellow
+    Write-Host ""
+
+    do {
+        $ollamaChoice = Read-Host "  Enter choice [1/2] (default: 1)"
+        if ($ollamaChoice -eq "") { $ollamaChoice = "1" }
+    } while ($ollamaChoice -ne "1" -and $ollamaChoice -ne "2")
+
+    if ($ollamaChoice -eq "2") {
+        Write-Host ""
+        Write-Host "  Enter the Ollama server URL (e.g. http://192.168.1.100:11434):"
+        $OllamaUrl = Read-Host "  URL"
+        if ($OllamaUrl -eq "") {
+            Write-Err "URL cannot be empty."
+            exit 1
+        }
+    }
+    Write-Host ""
+}
+
+$RemoteOllama = $false
+if ($OllamaUrl -ne "") {
+    $RemoteOllama = $true
+    $OllamaUrl = $OllamaUrl.TrimEnd('/')
+    Write-Info "Using remote Ollama server: $OllamaUrl"
+
+    # Verify remote is reachable
+    Write-Info "Checking connectivity to $OllamaUrl..."
+    try {
+        $resp = Invoke-WebRequest -Uri "$OllamaUrl/api/tags" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($resp.StatusCode -eq 200) {
+            Write-Ok "Remote Ollama server is reachable."
+        }
+    } catch {
+        Write-Warn "Cannot reach $OllamaUrl/api/tags right now."
+        Write-Warn "Make sure the Ollama server is running and the URL is correct."
+        $choice = Read-Host "  Continue anyway? [y/N]"
+        if ($choice -ne "y" -and $choice -ne "Y") {
+            Write-Host "  Aborting."
+            exit 0
+        }
+    }
+} else {
+    $OllamaUrl = "http://localhost:11434"
+}
+
 # -- Tier selection -----------------------------------------------------------
 if ($Cpu -and $Tier -gt 0 -and $Tier -ne 1) {
     Write-Warn "-Cpu flag overrides -Tier $Tier. Using tier 1 (CPU-only)."
@@ -466,15 +522,19 @@ if ($InstallMode -eq "docker") {
     }
 
     # -- Pre-flight checks ---------------------------------------------------
-    Test-PortFree 11434 "Ollama"
+    if (-not $RemoteOllama) {
+        Test-PortFree 11434 "Ollama"
+        Test-DiskSpace $ModelDiskGB[$Tier]
+    }
     Test-PortFree 18789 "OpenClaw Gateway"
-    Test-DiskSpace $ModelDiskGB[$Tier]
 
     # Confirmation
     Write-Host ""
     Write-Host "  Ready to install:" -ForegroundColor White
     Write-Host "    Mode:      Docker"
-    Write-Host "    Model:     $Model ($ModelSize download)"
+    Write-Host "    Model:     $Model ($ModelSize)"
+    Write-Host "    Ollama:    $OllamaUrl"
+    if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
     if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
     Write-Host ""
     $proceed = Read-Host "  Proceed? [Y/n]"
@@ -484,30 +544,47 @@ if ($InstallMode -eq "docker") {
     # -- Start Services -------------------------------------------------------
     Set-Location $scriptDir
 
-    Write-Info "Pulling Docker images (first run may take a few minutes)..."
-    & docker compose @composeFiles pull
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull images."; exit 1 }
+    if ($RemoteOllama) {
+        # Remote Ollama: only start the gateway
+        Write-Info "Pulling OpenClaw Gateway image..."
+        & docker compose @composeFiles pull openclaw-gateway
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull image."; exit 1 }
 
-    Write-Info "Starting Ollama + OpenClaw Gateway..."
-    & docker compose @composeFiles up -d ollama openclaw-gateway
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start services."; exit 1 }
+        Write-Info "Starting OpenClaw Gateway (Ollama on $OllamaUrl)..."
+        $env:OLLAMA_BASE_URL = $OllamaUrl
+        $env:LIBRARIAN_MODEL = $Model
+        & docker compose @composeFiles up -d openclaw-gateway
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start gateway."; exit 1 }
 
-    # Wait for Ollama
-    Write-Info "Waiting for Ollama to initialize..."
-    if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
-        Write-Err "Ollama failed to start after 60 seconds."
-        Write-Host "  Check logs: docker compose logs ollama"
-        exit 1
+        Write-Warn "Skipping local Ollama - using remote server at $OllamaUrl"
+        Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
+    } else {
+        # Local Ollama: start everything
+        Write-Info "Pulling Docker images (first run may take a few minutes)..."
+        & docker compose @composeFiles pull
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull images."; exit 1 }
+
+        Write-Info "Starting Ollama + OpenClaw Gateway..."
+        & docker compose @composeFiles up -d ollama openclaw-gateway
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start services."; exit 1 }
+
+        # Wait for Ollama
+        Write-Info "Waiting for Ollama to initialize..."
+        if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
+            Write-Err "Ollama failed to start after 60 seconds."
+            Write-Host "  Check logs: docker compose logs ollama"
+            exit 1
+        }
+        Write-Ok "Ollama is ready."
+
+        # Pull model
+        Write-Info "Pulling $Model ($ModelSize download, one-time operation)..."
+        Write-Host "  $ModelNote"
+        Write-Host ""
+        & docker exec librarian-ollama ollama pull $Model
+        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
+        Write-Ok "Model downloaded and ready."
     }
-    Write-Ok "Ollama is ready."
-
-    # Pull model
-    Write-Info "Pulling $Model ($ModelSize download, one-time operation)..."
-    Write-Host "  $ModelNote"
-    Write-Host ""
-    & docker exec librarian-ollama ollama pull $Model
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
-    Write-Ok "Model downloaded and ready."
 
     # -- Update config with selected model ------------------------------------
     Write-Info "Configuring OpenClaw to use $Model..."
@@ -515,8 +592,9 @@ if ($InstallMode -eq "docker") {
     if (Test-Path $configPath) {
         $content = Get-Content $configPath -Raw
         $content = $content -replace 'name: "[^"]*"', "name: `"$Model`""
+        $content = $content -replace 'baseUrl: "[^"]*"', "baseUrl: `"$OllamaUrl`""
         Set-Content -Path $configPath -Value $content -NoNewline
-        Write-Ok "Config updated: model set to $Model"
+        Write-Ok "Config updated: model=$Model, ollama=$OllamaUrl"
     } else {
         Write-Warn "Config file not found - you may need to set the model manually."
     }
@@ -586,21 +664,31 @@ WORKDIR /home/sandbox
 if ($InstallMode -eq "native") {
 
     # -- Pre-flight checks ---------------------------------------------------
-    Test-PortFree 11434 "Ollama"
+    if (-not $RemoteOllama) {
+        Test-PortFree 11434 "Ollama"
+        Test-DiskSpace $ModelDiskGB[$Tier]
+    }
     Test-PortFree 18789 "OpenClaw Gateway"
-    Test-DiskSpace $ModelDiskGB[$Tier]
 
     # Confirmation
     Write-Host ""
     Write-Host "  Ready to install:" -ForegroundColor White
     Write-Host "    Mode:      Native (host install)"
-    Write-Host "    Model:     $Model ($ModelSize download)"
+    Write-Host "    Model:     $Model ($ModelSize)"
+    Write-Host "    Ollama:    $OllamaUrl"
+    if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
     if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
     Write-Host ""
     $proceed = Read-Host "  Proceed? [Y/n]"
     if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
     Write-Host ""
 
+    if ($RemoteOllama) {
+        # -- Remote Ollama - skip install, start, pull -------------------------
+        Write-Info "Using remote Ollama at $OllamaUrl"
+        Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
+        Write-Host ""
+    } else {
     # -- Install Ollama -------------------------------------------------------
     Write-Info "Checking for Ollama..."
     $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
@@ -654,6 +742,7 @@ if ($InstallMode -eq "native") {
     & ollama pull $Model
     if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
     Write-Ok "Model downloaded and ready."
+    } # end local Ollama block
 
     # -- Install Node.js (if needed) ------------------------------------------
     Write-Info "Checking for Node.js..."
@@ -711,7 +800,7 @@ if ($InstallMode -eq "native") {
 {
   // -- The Librarian -- OpenClaw Configuration (native install) ---
   //
-  // Model: $Model via local Ollama
+  // Model: $Model via Ollama at $OllamaUrl
   // Install mode: native (no Docker sandboxing)
 
   // Model provider configuration
@@ -719,7 +808,7 @@ if ($InstallMode -eq "native") {
     provider: "ollama",
     name: "$Model",
     ollama: {
-      baseUrl: "http://localhost:11434"
+      baseUrl: "$OllamaUrl"
     }
   },
 

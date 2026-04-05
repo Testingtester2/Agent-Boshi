@@ -92,6 +92,32 @@ The setup script will:
 .\setup.ps1 -Cpu
 ```
 
+### Remote Ollama Server
+
+Run The Librarian in a VM or lightweight machine while using an Ollama server
+on a separate GPU machine on your network. The setup script prompts for this
+interactively, or use the `--ollama-url` flag:
+
+```bash
+# Linux/macOS — point to Ollama on another machine
+./setup.sh --native --tier 4 --ollama-url http://192.168.1.100:11434
+
+# Windows
+.\setup.ps1 -Native -Tier 4 -OllamaUrl http://192.168.1.100:11434
+```
+
+This skips Ollama installation and model download on the local machine. You
+must pull the model on the remote server yourself:
+
+```bash
+# On the GPU machine running Ollama:
+ollama pull gemma4:31b
+```
+
+> **Note:** Make sure Ollama on the remote machine is listening on
+> `0.0.0.0:11434` (not just localhost). Set `OLLAMA_HOST=0.0.0.0` on the
+> remote before starting Ollama.
+
 ### Manual Docker Compose
 
 If you prefer to manage Docker directly (Docker mode only):

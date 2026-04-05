@@ -177,6 +177,7 @@ TIER=""
 USE_CODER=""
 INSTALL_MODE=""
 DO_UNINSTALL=false
+OLLAMA_URL=""
 for arg in "$@"; do
   case "$arg" in
     --cpu) CPU_ONLY=true; TIER=1 ;;
@@ -184,6 +185,9 @@ for arg in "$@"; do
     --docker) INSTALL_MODE=docker ;;
     --native) INSTALL_MODE=native ;;
     --uninstall) DO_UNINSTALL=true ;;
+    --ollama-url)
+      # Next arg is the URL — handled below
+      ;;
     --tier)
       # Next arg is the tier number — handled below
       ;;
@@ -194,17 +198,19 @@ for arg in "$@"; do
       fi
       ;;
     --help|-h)
-      echo "Usage: ./setup.sh [--docker|--native] [--cpu] [--tier <1-5>] [--coder] [--uninstall]"
+      echo "Usage: ./setup.sh [--docker|--native] [--cpu] [--tier <1-5>] [--coder] [--ollama-url <URL>] [--uninstall]"
       echo ""
       echo "Install modes:"
-      echo "  --docker      Run everything in Docker containers (needs Docker Desktop)"
-      echo "  --native      Install directly on the host (recommended for VMs)"
+      echo "  --docker        Run everything in Docker containers (needs Docker Desktop)"
+      echo "  --native        Install directly on the host (recommended for VMs)"
       echo ""
       echo "Options:"
-      echo "  --cpu         Run without GPU (CPU-only inference, uses qwen3.5:4b)"
-      echo "  --tier <N>    Skip the interactive menu and use tier N directly"
-      echo "  --coder       Use qwen3-coder (code-specialized) instead of qwen3.5 for tiers 4-5"
-      echo "  --uninstall   Remove The Librarian (Docker containers/volumes or native install)"
+      echo "  --cpu           Run without GPU (CPU-only inference, uses qwen3.5:4b)"
+      echo "  --tier <N>      Skip the interactive menu and use tier N directly"
+      echo "  --coder         Use qwen3-coder (code-specialized) instead of gemma4 for tiers 4-5"
+      echo "  --ollama-url <URL>  Use a remote Ollama server (e.g. http://192.168.1.100:11434)"
+      echo "                      Skips local Ollama install. Model must be pulled on the remote."
+      echo "  --uninstall     Remove The Librarian (Docker containers/volumes or native install)"
       echo ""
       echo "Tiers:"
       echo "  1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM"
@@ -220,18 +226,21 @@ for arg in "$@"; do
   PREV_ARG="$arg"
 done
 
-# Handle --tier N (two-arg form)
+# Handle two-arg flags: --tier N, --ollama-url URL
 i=0
 for arg in "$@"; do
   i=$((i + 1))
-  if [ "$arg" = "--tier" ]; then
-    # Get next arg
-    next_i=$((i + 1))
+  next_i=$((i + 1))
+  if [ "$arg" = "--tier" ] || [ "$arg" = "--ollama-url" ]; then
     j=0
     for a2 in "$@"; do
       j=$((j + 1))
       if [ $j -eq $next_i ]; then
-        TIER="$a2"
+        if [ "$arg" = "--tier" ]; then
+          TIER="$a2"
+        elif [ "$arg" = "--ollama-url" ]; then
+          OLLAMA_URL="$a2"
+        fi
         break
       fi
     done
@@ -399,6 +408,61 @@ if [ -z "$INSTALL_MODE" ]; then
 fi
 
 info "Install mode: $INSTALL_MODE"
+
+# ── Ollama location ───────────────────────────────────────────
+if [ -z "$OLLAMA_URL" ]; then
+  echo ""
+  echo -e "${BOLD}Where is your Ollama server?${NC}"
+  echo ""
+  echo -e "  ${CYAN}1)${NC}  ${BOLD}Local${NC} — Install and run Ollama on this machine (default)"
+  echo -e "  ${CYAN}2)${NC}  ${BOLD}Remote${NC} — Connect to Ollama running on another machine"
+  echo -e "      ${YELLOW}(e.g. a GPU server on your network, or the host machine)${NC}"
+  echo ""
+
+  while true; do
+    read -rp "  Enter choice [1/2] (default: 1): " OLLAMA_CHOICE
+    case "${OLLAMA_CHOICE:-1}" in
+      1) break ;;
+      2)
+        echo ""
+        echo -e "  Enter the Ollama server URL (e.g. ${CYAN}http://192.168.1.100:11434${NC}):"
+        read -rp "  URL: " OLLAMA_URL
+        if [ -z "$OLLAMA_URL" ]; then
+          echo -e "  ${RED}URL cannot be empty.${NC}"
+          continue
+        fi
+        # Strip trailing slash
+        OLLAMA_URL="${OLLAMA_URL%/}"
+        break
+        ;;
+      *) echo -e "  ${RED}Please enter 1 or 2.${NC}" ;;
+    esac
+  done
+  echo ""
+fi
+
+REMOTE_OLLAMA=false
+if [ -n "$OLLAMA_URL" ]; then
+  REMOTE_OLLAMA=true
+  OLLAMA_URL="${OLLAMA_URL%/}"
+  info "Using remote Ollama server: $OLLAMA_URL"
+
+  # Verify remote is reachable
+  info "Checking connectivity to $OLLAMA_URL..."
+  if curl -sf "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
+    success "Remote Ollama server is reachable."
+  else
+    warn "Cannot reach $OLLAMA_URL/api/tags right now."
+    warn "Make sure the Ollama server is running and the URL is correct."
+    read -rp "  Continue anyway? [y/N]: " REMOTE_CONTINUE
+    case "${REMOTE_CONTINUE:-N}" in
+      y|Y|yes|Yes) ;;
+      *) echo "  Aborting."; exit 0 ;;
+    esac
+  fi
+else
+  OLLAMA_URL="http://localhost:11434"
+fi
 
 # ── Tier selection menu ─────────────────────────────────────────
 if [ -z "$TIER" ]; then
@@ -591,15 +655,23 @@ if [ "$INSTALL_MODE" = "docker" ]; then
   fi
 
   # ── Pre-flight checks ─────────────────────────────────────────
-  check_port 11434 "Ollama"
+  if [ "$REMOTE_OLLAMA" = false ]; then
+    check_port 11434 "Ollama"
+  fi
   check_port 18789 "OpenClaw Gateway"
-  check_disk_space "$(model_disk_gb "$TIER")"
+  if [ "$REMOTE_OLLAMA" = false ]; then
+    check_disk_space "$(model_disk_gb "$TIER")"
+  fi
 
   # Confirmation before download
   echo ""
   echo -e "  ${BOLD}Ready to install:${NC}"
   echo -e "    Mode:      Docker"
-  echo -e "    Model:     $MODEL ($MODEL_SIZE download)"
+  echo -e "    Model:     $MODEL ($MODEL_SIZE)"
+  echo -e "    Ollama:    $OLLAMA_URL"
+  if [ "$REMOTE_OLLAMA" = true ]; then
+    echo -e "               ${YELLOW}(remote — model must be pulled on the server)${NC}"
+  fi
   if [ "$CPU_ONLY" = true ]; then
     echo -e "    GPU:       CPU-only"
   fi
@@ -617,36 +689,50 @@ if [ "$INSTALL_MODE" = "docker" ]; then
 
   cd "$SCRIPT_DIR"
 
-  # Pull images first
-  info "Pulling Docker images (this may take a few minutes on first run)..."
-  docker compose "${COMPOSE_FILES[@]}" pull
+  if [ "$REMOTE_OLLAMA" = true ]; then
+    # Remote Ollama: only start the gateway, point it at the remote server
+    info "Pulling OpenClaw Gateway image..."
+    docker compose "${COMPOSE_FILES[@]}" pull openclaw-gateway
 
-  # Start Ollama and OpenClaw Gateway
-  info "Starting Ollama + OpenClaw Gateway..."
-  docker compose "${COMPOSE_FILES[@]}" up -d ollama openclaw-gateway
+    info "Starting OpenClaw Gateway (Ollama on $OLLAMA_URL)..."
+    # Override the Ollama URL via environment
+    OLLAMA_BASE_URL="$OLLAMA_URL" LIBRARIAN_MODEL="$MODEL" \
+      docker compose "${COMPOSE_FILES[@]}" up -d openclaw-gateway
 
-  # Wait for Ollama to be ready
-  info "Waiting for Ollama to initialize..."
-  if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
-    error "Ollama failed to start after 60 seconds."
-    echo "  Check logs: docker compose logs ollama"
-    exit 1
+    warn "Skipping local Ollama — using remote server at $OLLAMA_URL"
+    warn "Make sure '$MODEL' is pulled on the remote: ollama pull $MODEL"
+  else
+    # Local Ollama: start everything
+    info "Pulling Docker images (this may take a few minutes on first run)..."
+    docker compose "${COMPOSE_FILES[@]}" pull
+
+    info "Starting Ollama + OpenClaw Gateway..."
+    docker compose "${COMPOSE_FILES[@]}" up -d ollama openclaw-gateway
+
+    # Wait for Ollama to be ready
+    info "Waiting for Ollama to initialize..."
+    if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
+      error "Ollama failed to start after 60 seconds."
+      echo "  Check logs: docker compose logs ollama"
+      exit 1
+    fi
+    success "Ollama is ready."
+
+    # Pull the model
+    info "Pulling $MODEL ($MODEL_SIZE download, this is a one-time operation)..."
+    echo "  $(model_note)"
+    echo ""
+    docker exec librarian-ollama ollama pull "$MODEL"
+    success "Model downloaded and ready."
   fi
-  success "Ollama is ready."
-
-  # Pull the model
-  info "Pulling $MODEL ($MODEL_SIZE download, this is a one-time operation)..."
-  echo "  $(model_note)"
-  echo ""
-  docker exec librarian-ollama ollama pull "$MODEL"
-  success "Model downloaded and ready."
 
   # ── Write model selection to config ───────────────────────────
   info "Configuring OpenClaw to use $MODEL..."
   CONFIG_FILE="openclaw/config.json5"
   if [ -f "$CONFIG_FILE" ]; then
     sed -i.bak "s|name: \"[^\"]*\"|name: \"$MODEL\"|" "$CONFIG_FILE" && rm -f "${CONFIG_FILE}.bak"
-    success "Config updated: model set to $MODEL"
+    sed -i.bak "s|baseUrl: \"[^\"]*\"|baseUrl: \"$OLLAMA_URL\"|" "$CONFIG_FILE" && rm -f "${CONFIG_FILE}.bak"
+    success "Config updated: model=$MODEL, ollama=$OLLAMA_URL"
   else
     warn "Config file not found at $CONFIG_FILE — you may need to set the model manually."
   fi
@@ -721,15 +807,21 @@ fi # end Docker path
 if [ "$INSTALL_MODE" = "native" ]; then
 
   # ── Pre-flight checks ─────────────────────────────────────────
-  check_port 11434 "Ollama"
+  if [ "$REMOTE_OLLAMA" = false ]; then
+    check_port 11434 "Ollama"
+    check_disk_space "$(model_disk_gb "$TIER")"
+  fi
   check_port 18789 "OpenClaw Gateway"
-  check_disk_space "$(model_disk_gb "$TIER")"
 
   # Confirmation before download
   echo ""
   echo -e "  ${BOLD}Ready to install:${NC}"
   echo -e "    Mode:      Native (host install)"
-  echo -e "    Model:     $MODEL ($MODEL_SIZE download)"
+  echo -e "    Model:     $MODEL ($MODEL_SIZE)"
+  echo -e "    Ollama:    $OLLAMA_URL"
+  if [ "$REMOTE_OLLAMA" = true ]; then
+    echo -e "               ${YELLOW}(remote — model must be pulled on the server)${NC}"
+  fi
   if [ "$CPU_ONLY" = true ]; then
     echo -e "    GPU:       CPU-only"
   fi
@@ -740,51 +832,54 @@ if [ "$INSTALL_MODE" = "native" ]; then
   esac
   echo ""
 
-  # ── Install Ollama ────────────────────────────────────────────
-  info "Checking for Ollama..."
-  if command -v ollama &> /dev/null; then
-    success "Ollama is already installed ($(ollama --version 2>/dev/null || echo 'unknown version'))."
+  if [ "$REMOTE_OLLAMA" = true ]; then
+    # ── Remote Ollama — skip install, start, and pull ────────────
+    info "Using remote Ollama at $OLLAMA_URL"
+    warn "Make sure '$MODEL' is pulled on the remote: ollama pull $MODEL"
+    echo ""
   else
-    info "Installing Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh
-    if ! command -v ollama &> /dev/null; then
-      error "Ollama installation failed. Please install manually from https://ollama.com"
-      exit 1
-    fi
-    success "Ollama installed."
-  fi
-
-  # ── Start Ollama ──────────────────────────────────────────────
-  info "Starting Ollama service..."
-  # Check if ollama is already serving
-  if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-    success "Ollama is already running."
-  else
-    # Try systemctl first (Linux), then launch in background
-    if command -v systemctl &> /dev/null && systemctl is-enabled ollama &> /dev/null 2>&1; then
-      sudo systemctl start ollama
+    # ── Install Ollama ────────────────────────────────────────────
+    info "Checking for Ollama..."
+    if command -v ollama &> /dev/null; then
+      success "Ollama is already installed ($(ollama --version 2>/dev/null || echo 'unknown version'))."
     else
-      # Start in background (macOS or non-systemd Linux)
-      ollama serve &> /dev/null &
-      OLLAMA_PID=$!
-      disown "$OLLAMA_PID" 2>/dev/null || true
+      info "Installing Ollama..."
+      curl -fsSL https://ollama.com/install.sh | sh
+      if ! command -v ollama &> /dev/null; then
+        error "Ollama installation failed. Please install manually from https://ollama.com"
+        exit 1
+      fi
+      success "Ollama installed."
     fi
 
-    # Wait for Ollama to be ready
-    if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
-      error "Ollama failed to start after 60 seconds."
-      echo "  Try running 'ollama serve' manually in another terminal."
-      exit 1
+    # ── Start Ollama ──────────────────────────────────────────────
+    info "Starting Ollama service..."
+    if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+      success "Ollama is already running."
+    else
+      if command -v systemctl &> /dev/null && systemctl is-enabled ollama &> /dev/null 2>&1; then
+        sudo systemctl start ollama
+      else
+        ollama serve &> /dev/null &
+        OLLAMA_PID=$!
+        disown "$OLLAMA_PID" 2>/dev/null || true
+      fi
+
+      if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
+        error "Ollama failed to start after 60 seconds."
+        echo "  Try running 'ollama serve' manually in another terminal."
+        exit 1
+      fi
+      success "Ollama is running."
     fi
-    success "Ollama is running."
+
+    # ── Pull the model ───────────────────────────────────────────
+    info "Pulling $MODEL ($MODEL_SIZE download, this is a one-time operation)..."
+    echo "  $(model_note)"
+    echo ""
+    ollama pull "$MODEL"
+    success "Model downloaded and ready."
   fi
-
-  # ── Pull the model ───────────────────────────────────────────
-  info "Pulling $MODEL ($MODEL_SIZE download, this is a one-time operation)..."
-  echo "  $(model_note)"
-  echo ""
-  ollama pull "$MODEL"
-  success "Model downloaded and ready."
 
   # ── Install Node.js (if needed) ──────────────────────────────
   info "Checking for Node.js..."
@@ -834,12 +929,12 @@ if [ "$INSTALL_MODE" = "native" ]; then
   cp "$SCRIPT_DIR/openclaw/SOUL.md" "$OPENCLAW_DIR/SOUL.md"
   cp -r "$SCRIPT_DIR/openclaw/skills/"* "$OPENCLAW_DIR/skills/" 2>/dev/null || true
 
-  # Write native config (Ollama on localhost, no Docker sandbox)
+  # Write native config
   cat > "$OPENCLAW_DIR/config.json5" << NATIVECONF
 {
   // ── The Librarian — OpenClaw Configuration (native install) ───
   //
-  // Model: $MODEL via local Ollama
+  // Model: $MODEL via Ollama at $OLLAMA_URL
   // Install mode: native (no Docker sandboxing)
 
   // Model provider configuration
@@ -847,7 +942,7 @@ if [ "$INSTALL_MODE" = "native" ]; then
     provider: "ollama",
     name: "$MODEL",
     ollama: {
-      baseUrl: "http://localhost:11434"
+      baseUrl: "$OLLAMA_URL"
     }
   },
 
