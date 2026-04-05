@@ -22,10 +22,10 @@
 # Model Tiers:
 #   1) CPU-only  — qwen3.5:4b            (~3.4GB download, needs 8GB+ RAM)
 #   2) 8GB VRAM  — qwen3.5:9b            (~6.6GB download)  [RTX 3060/4060]
-#   3) 16GB VRAM — qwen3.5:27b           (~17GB download)   [RTX 4080/4070Ti-16GB]
-#   4) 24GB VRAM — qwen3.5:35b           (~24GB download)   [RTX 4090]
+#   3) 16GB VRAM — gemma4:26b             (~18GB download)   [RTX 4080/4070Ti-16GB]
+#   4) 24GB VRAM — gemma4:31b             (~20GB download)   [RTX 4090]
 #                  or qwen3-coder:30b-a3b (~19GB, code-specialized MoE)
-#   5) 48GB VRAM — qwen3.5:35b-q8_0      (~35GB, Q8 quality) [A6000/dual GPU]
+#   5) 48GB VRAM — gemma4:31b-it-q8_0    (~34GB, Q8 quality) [A6000/dual GPU]
 #                  or qwen3-coder:30b-a3b-q8_0 (~32GB, code-specialized MoE Q8)
 ###############################################################################
 
@@ -45,6 +45,115 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# ── Cleanup trap ───────────────────────────────────────────────
+CLEANUP_DOCKER=false
+cleanup() {
+  echo ""
+  warn "Setup interrupted. Cleaning up..."
+  if [ -n "${OLLAMA_PID:-}" ]; then
+    kill "$OLLAMA_PID" 2>/dev/null || true
+  fi
+  if [ -n "${GATEWAY_PID:-}" ]; then
+    kill "$GATEWAY_PID" 2>/dev/null || true
+  fi
+  if [ "$CLEANUP_DOCKER" = true ]; then
+    warn "Stopping Docker containers..."
+    docker compose down 2>/dev/null || true
+  fi
+  exit 130
+}
+trap cleanup INT TERM
+
+# ── Spinner for wait loops ─────────────────────────────────────
+SPINNER_CHARS='|/-\'
+spin_wait() {
+  local retries=0
+  local max_retries=$1
+  local url=$2
+  local label=$3
+  local spin_i=0
+  while ! curl -sf "$url" > /dev/null 2>&1; do
+    retries=$((retries + 1))
+    if [ $retries -ge $max_retries ]; then
+      printf "\r\033[K"
+      return 1
+    fi
+    printf "\r  %s Waiting... (%d/%d) " "${SPINNER_CHARS:spin_i:1}" "$retries" "$max_retries"
+    spin_i=$(( (spin_i + 1) % 4 ))
+    sleep 2
+  done
+  printf "\r\033[K"
+  return 0
+}
+
+# ── VRAM auto-detection ───────────────────────────────────────
+detect_vram_mb() {
+  if command -v nvidia-smi &> /dev/null; then
+    local vram_mb
+    vram_mb=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+    if [ -n "$vram_mb" ] && [ "$vram_mb" -gt 0 ] 2>/dev/null; then
+      echo "$vram_mb"
+      return 0
+    fi
+  fi
+  echo "0"
+  return 1
+}
+
+suggest_tier() {
+  local vram_mb=$1
+  if [ "$vram_mb" -ge 40000 ]; then echo 5
+  elif [ "$vram_mb" -ge 20000 ]; then echo 4
+  elif [ "$vram_mb" -ge 14000 ]; then echo 3
+  elif [ "$vram_mb" -ge 6000 ]; then echo 2
+  else echo 1; fi
+}
+
+# ── Disk space check ──────────────────────────────────────────
+model_disk_gb() {
+  case "$1" in
+    1) echo 5 ;;  2) echo 8 ;;  3) echo 20 ;;  4) echo 22 ;;  5) echo 36 ;;
+  esac
+}
+
+check_disk_space() {
+  local needed_gb=$1
+  local avail_kb
+  avail_kb=$(df -k . 2>/dev/null | tail -1 | awk '{print $4}')
+  if [ -n "$avail_kb" ]; then
+    local avail_gb=$((avail_kb / 1048576))
+    if [ "$avail_gb" -lt "$needed_gb" ]; then
+      warn "Low disk space: ${avail_gb}GB available, ~${needed_gb}GB needed for model download."
+      read -rp "  Continue anyway? [y/N]: " DISK_CONTINUE
+      case "${DISK_CONTINUE:-N}" in
+        y|Y|yes|Yes) ;;
+        *) echo "  Aborting."; exit 0 ;;
+      esac
+    fi
+  fi
+}
+
+# ── Port conflict check ──────────────────────────────────────
+check_port() {
+  local port=$1
+  local name=$2
+  local in_use=false
+  if command -v ss &> /dev/null; then
+    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then in_use=true; fi
+  elif command -v lsof &> /dev/null; then
+    if lsof -i :"$port" &>/dev/null; then in_use=true; fi
+  fi
+  if [ "$in_use" = true ]; then
+    warn "Port $port is already in use ($name)."
+    warn "Another service may be running. The install may fail or conflict."
+    read -rp "  Continue anyway? [y/N]: " PORT_CONTINUE
+    case "${PORT_CONTINUE:-N}" in
+      y|Y|yes|Yes) ;;
+      *) echo "  Aborting."; exit 0 ;;
+    esac
+  fi
+}
+
 # ── Banner ──────────────────────────────────────────────────────
 echo -e "${CYAN}"
 cat << 'BANNER'
@@ -55,7 +164,7 @@ cat << 'BANNER'
   |   Keeper of the Ancient Code                              |
   |                                                           |
   |   A Shiba dev-sage from Shibatopia                        |
-  |   Powered by OpenClaw + Ollama + Qwen3.5                  |
+  |   Powered by OpenClaw + Ollama + Gemma4/Qwen3.5            |
   |                                                           |
   +=========================================================+
 
@@ -67,12 +176,14 @@ CPU_ONLY=false
 TIER=""
 USE_CODER=""
 INSTALL_MODE=""
+DO_UNINSTALL=false
 for arg in "$@"; do
   case "$arg" in
     --cpu) CPU_ONLY=true; TIER=1 ;;
     --coder) USE_CODER=true ;;
     --docker) INSTALL_MODE=docker ;;
     --native) INSTALL_MODE=native ;;
+    --uninstall) DO_UNINSTALL=true ;;
     --tier)
       # Next arg is the tier number — handled below
       ;;
@@ -83,7 +194,7 @@ for arg in "$@"; do
       fi
       ;;
     --help|-h)
-      echo "Usage: ./setup.sh [--docker|--native] [--cpu] [--tier <1-5>] [--coder]"
+      echo "Usage: ./setup.sh [--docker|--native] [--cpu] [--tier <1-5>] [--coder] [--uninstall]"
       echo ""
       echo "Install modes:"
       echo "  --docker      Run everything in Docker containers (needs Docker Desktop)"
@@ -93,14 +204,15 @@ for arg in "$@"; do
       echo "  --cpu         Run without GPU (CPU-only inference, uses qwen3.5:4b)"
       echo "  --tier <N>    Skip the interactive menu and use tier N directly"
       echo "  --coder       Use qwen3-coder (code-specialized) instead of qwen3.5 for tiers 4-5"
+      echo "  --uninstall   Remove The Librarian (Docker containers/volumes or native install)"
       echo ""
       echo "Tiers:"
       echo "  1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM"
       echo "  2  8GB VRAM   qwen3.5:9b            (~6.6GB)  RTX 3060 / 4060"
-      echo "  3  16GB VRAM  qwen3.5:27b           (~17GB)   RTX 4080 / 4070Ti-16GB"
-      echo "  4  24GB VRAM  qwen3.5:35b           (~24GB)   RTX 4090"
+      echo "  3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB"
+      echo "  4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090"
       echo "              or qwen3-coder:30b-a3b   (~19GB)   with --coder"
-      echo "  5  48GB VRAM  qwen3.5:35b-q8_0      (~35GB)   A6000 / dual GPU (Q8)"
+      echo "  5  48GB VRAM  gemma4:31b-it-q8_0    (~34GB)   A6000 / dual GPU (Q8)"
       echo "              or qwen3-coder:30b-a3b-q8_0 (~32GB) with --coder (Q8)"
       exit 0
       ;;
@@ -128,6 +240,58 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ── Uninstall ─────────────────────────────────────────────────
+if [ "$DO_UNINSTALL" = true ]; then
+  echo ""
+  echo -e "${BOLD}Uninstall The Librarian${NC}"
+  echo ""
+  echo -e "  ${CYAN}1)${NC}  Docker — Remove containers, images, and volumes"
+  echo -e "  ${CYAN}2)${NC}  Native — Remove config, stop services"
+  echo -e "  ${CYAN}3)${NC}  Both"
+  echo ""
+
+  while true; do
+    read -rp "  What to uninstall? [1/2/3]: " UNINST_CHOICE
+    case "$UNINST_CHOICE" in
+      1|2|3) break ;;
+      *) echo -e "  ${RED}Please enter 1, 2, or 3.${NC}" ;;
+    esac
+  done
+
+  if [ "$UNINST_CHOICE" = "1" ] || [ "$UNINST_CHOICE" = "3" ]; then
+    info "Removing Docker containers and volumes..."
+    cd "$SCRIPT_DIR"
+    docker compose down -v 2>/dev/null || true
+    docker rmi openclaw-sandbox:bookworm-slim 2>/dev/null || true
+    success "Docker containers, volumes, and sandbox image removed."
+  fi
+
+  if [ "$UNINST_CHOICE" = "2" ] || [ "$UNINST_CHOICE" = "3" ]; then
+    info "Stopping native services..."
+    pkill -f 'openclaw serve' 2>/dev/null || true
+
+    if [ -d "$HOME/.openclaw" ]; then
+      read -rp "  Remove ~/.openclaw config directory? [y/N]: " RM_CONFIG
+      case "${RM_CONFIG:-N}" in
+        y|Y|yes|Yes)
+          rm -rf "$HOME/.openclaw"
+          success "Removed ~/.openclaw"
+          ;;
+        *) info "Kept ~/.openclaw" ;;
+      esac
+    fi
+    success "Native services stopped."
+  fi
+
+  echo ""
+  echo "  Note: Ollama and downloaded models are not removed."
+  echo "  To remove models:  ollama rm <model>"
+  echo "  To remove Ollama:  sudo rm /usr/local/bin/ollama"
+  echo ""
+  success "Uninstall complete."
+  exit 0
+fi
+
 # ── Check / Install Git ───────────────────────────────────────
 if ! command -v git &> /dev/null; then
   info "Git is not installed. Installing..."
@@ -152,9 +316,9 @@ tier_model()   {
   case "$1" in
     1) echo "qwen3.5:4b" ;;
     2) echo "qwen3.5:9b" ;;
-    3) echo "qwen3.5:27b" ;;
-    4) echo "qwen3.5:35b" ;;
-    5) echo "qwen3.5:35b-q8_0" ;;
+    3) echo "gemma4:26b" ;;
+    4) echo "gemma4:31b" ;;
+    5) echo "gemma4:31b-it-q8_0" ;;
   esac
 }
 
@@ -162,9 +326,9 @@ tier_size()    {
   case "$1" in
     1) echo "~3.4GB" ;;
     2) echo "~6.6GB" ;;
-    3) echo "~17GB" ;;
-    4) echo "~24GB" ;;
-    5) echo "~35GB" ;;
+    3) echo "~18GB" ;;
+    4) echo "~20GB" ;;
+    5) echo "~34GB" ;;
   esac
 }
 
@@ -172,9 +336,9 @@ tier_label()   {
   case "$1" in
     1) echo "CPU-only    (qwen3.5:4b)             — Lightweight, needs 8GB+ RAM" ;;
     2) echo "8GB VRAM    (qwen3.5:9b)             — RTX 3060 / 4060" ;;
-    3) echo "16GB VRAM   (qwen3.5:27b)            — RTX 4080 / 4070Ti-16GB" ;;
-    4) echo "24GB VRAM   (qwen3.5:35b)            — RTX 4090" ;;
-    5) echo "48GB VRAM   (qwen3.5:35b-q8_0)       — A6000 / dual GPU (best)" ;;
+    3) echo "16GB VRAM   (gemma4:26b MoE)          — RTX 4080 / 4070Ti-16GB" ;;
+    4) echo "24GB VRAM   (gemma4:31b)              — RTX 4090" ;;
+    5) echo "48GB VRAM   (gemma4:31b-it-q8_0)      — A6000 / dual GPU (best)" ;;
   esac
 }
 
@@ -203,9 +367,9 @@ model_note()   {
     case "$TIER" in
       1) echo "4B params — lightweight model for CPU inference. Needs 8GB+ system RAM." ;;
       2) echo "9B params, Q4_K_M quantization — fits comfortably in 8GB VRAM." ;;
-      3) echo "27B params, Q4_K_M quantization — strong reasoning, 256K context." ;;
-      4) echo "35B params, Q4_K_M quantization — best quality dense model for 24GB VRAM." ;;
-      5) echo "35B params, Q8_0 — max quality for 48GB+ VRAM." ;;
+      3) echo "Google Gemma 4 26B MoE (3.8B active), Q4_K_M — code & reasoning optimized, 256K context." ;;
+      4) echo "Google Gemma 4 31B dense, Q4_K_M — best quality model for 24GB VRAM, 256K context." ;;
+      5) echo "Google Gemma 4 31B dense, Q8_0 — max quality for 48GB+ VRAM." ;;
     esac
   fi
 }
@@ -238,21 +402,37 @@ info "Install mode: $INSTALL_MODE"
 
 # ── Tier selection menu ─────────────────────────────────────────
 if [ -z "$TIER" ]; then
+  # Auto-detect VRAM and suggest a tier
+  DETECTED_VRAM=$(detect_vram_mb)
+  SUGGESTED_TIER=""
+  if [ "$DETECTED_VRAM" -gt 0 ] 2>/dev/null; then
+    SUGGESTED_TIER=$(suggest_tier "$DETECTED_VRAM")
+    VRAM_GB=$(( DETECTED_VRAM / 1024 ))
+    success "Detected GPU with ${VRAM_GB}GB VRAM — recommended tier: $SUGGESTED_TIER"
+  fi
+
   echo ""
   echo -e "${BOLD}Choose your model tier:${NC}"
   echo ""
-  echo -e "  ${CYAN}1)${NC}  $(tier_label 1)"
-  echo -e "  ${CYAN}2)${NC}  $(tier_label 2)"
-  echo -e "  ${CYAN}3)${NC}  $(tier_label 3)"
-  echo -e "  ${CYAN}4)${NC}  $(tier_label 4)"
-  echo -e "  ${CYAN}5)${NC}  $(tier_label 5)"
+  for t in 1 2 3 4 5; do
+    local_label=$(tier_label "$t")
+    if [ "$t" = "$SUGGESTED_TIER" ]; then
+      echo -e "  ${CYAN}${BOLD}$t)${NC}  ${BOLD}$local_label  ${GREEN}<-- recommended${NC}"
+    else
+      echo -e "  ${CYAN}$t)${NC}  $local_label"
+    fi
+  done
   echo ""
-  echo -e "  ${YELLOW}Not sure? Run 'nvidia-smi' to check your VRAM.${NC}"
-  echo -e "  ${YELLOW}No GPU? Pick option 1 (CPU-only).${NC}"
+  if [ -z "$SUGGESTED_TIER" ]; then
+    echo -e "  ${YELLOW}Not sure? Run 'nvidia-smi' to check your VRAM.${NC}"
+    echo -e "  ${YELLOW}No GPU? Pick option 1 (CPU-only).${NC}"
+  fi
   echo ""
 
+  DEFAULT_TIER="${SUGGESTED_TIER:-2}"
   while true; do
-    read -rp "  Enter tier [1-5]: " TIER
+    read -rp "  Enter tier [1-5] (default: $DEFAULT_TIER): " TIER
+    TIER="${TIER:-$DEFAULT_TIER}"
     case "$TIER" in
       1|2|3|4|5) break ;;
       *) echo -e "  ${RED}Please enter a number between 1 and 5.${NC}" ;;
@@ -274,7 +454,7 @@ if [ "$TIER" -ge 4 ] && [ -z "$USE_CODER" ]; then
   echo ""
   echo -e "${BOLD}Choose your model variant for tier $TIER:${NC}"
   echo ""
-  echo -e "  ${CYAN}a)${NC}  qwen3.5  — General-purpose, strong agentic reasoning, 256K context"
+  echo -e "  ${CYAN}a)${NC}  gemma4   — Google Gemma 4, best code & reasoning, multimodal, 256K context"
   echo -e "      $(tier_model "$TIER") ($(tier_size "$TIER") download)"
   echo ""
   echo -e "  ${CYAN}b)${NC}  qwen3-coder — Code-specialized MoE (3.3B active params, very fast)"
@@ -410,8 +590,29 @@ if [ "$INSTALL_MODE" = "docker" ]; then
     fi
   fi
 
+  # ── Pre-flight checks ─────────────────────────────────────────
+  check_port 11434 "Ollama"
+  check_port 18789 "OpenClaw Gateway"
+  check_disk_space "$(model_disk_gb "$TIER")"
+
+  # Confirmation before download
+  echo ""
+  echo -e "  ${BOLD}Ready to install:${NC}"
+  echo -e "    Mode:      Docker"
+  echo -e "    Model:     $MODEL ($MODEL_SIZE download)"
+  if [ "$CPU_ONLY" = true ]; then
+    echo -e "    GPU:       CPU-only"
+  fi
+  echo ""
+  read -rp "  Proceed? [Y/n]: " PROCEED
+  case "${PROCEED:-Y}" in
+    n|N|no|No) echo "  Aborting."; exit 0 ;;
+  esac
+  echo ""
+
   # ── Start Services ────────────────────────────────────────────
   info "Starting The Librarian's workstation..."
+  CLEANUP_DOCKER=true
   echo ""
 
   cd "$SCRIPT_DIR"
@@ -426,17 +627,11 @@ if [ "$INSTALL_MODE" = "docker" ]; then
 
   # Wait for Ollama to be ready
   info "Waiting for Ollama to initialize..."
-  RETRIES=0
-  MAX_RETRIES=30
-  until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do
-    RETRIES=$((RETRIES + 1))
-    if [ $RETRIES -ge $MAX_RETRIES ]; then
-      error "Ollama failed to start after 60 seconds."
-      echo "  Check logs: docker compose logs ollama"
-      exit 1
-    fi
-    sleep 2
-  done
+  if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
+    error "Ollama failed to start after 60 seconds."
+    echo "  Check logs: docker compose logs ollama"
+    exit 1
+  fi
   success "Ollama is ready."
 
   # Pull the model
@@ -481,16 +676,11 @@ DOCKERFILE
 
   # ── Verify OpenClaw Gateway ──────────────────────────────────
   info "Waiting for OpenClaw Gateway to start..."
-  RETRIES=0
-  until curl -sf http://localhost:18789/healthz > /dev/null 2>&1; do
-    RETRIES=$((RETRIES + 1))
-    if [ $RETRIES -ge $MAX_RETRIES ]; then
-      error "OpenClaw Gateway failed to start after 60 seconds."
-      echo "  Check logs: docker compose logs openclaw-gateway"
-      exit 1
-    fi
-    sleep 2
-  done
+  if ! spin_wait 30 "http://localhost:18789/healthz" "Gateway"; then
+    error "OpenClaw Gateway failed to start after 60 seconds."
+    echo "  Check logs: docker compose logs openclaw-gateway"
+    exit 1
+  fi
   success "OpenClaw Gateway is running."
 
   # ── Done (Docker) ────────────────────────────────────────────
@@ -530,6 +720,26 @@ fi # end Docker path
 ###############################################################################
 if [ "$INSTALL_MODE" = "native" ]; then
 
+  # ── Pre-flight checks ─────────────────────────────────────────
+  check_port 11434 "Ollama"
+  check_port 18789 "OpenClaw Gateway"
+  check_disk_space "$(model_disk_gb "$TIER")"
+
+  # Confirmation before download
+  echo ""
+  echo -e "  ${BOLD}Ready to install:${NC}"
+  echo -e "    Mode:      Native (host install)"
+  echo -e "    Model:     $MODEL ($MODEL_SIZE download)"
+  if [ "$CPU_ONLY" = true ]; then
+    echo -e "    GPU:       CPU-only"
+  fi
+  echo ""
+  read -rp "  Proceed? [Y/n]: " PROCEED
+  case "${PROCEED:-Y}" in
+    n|N|no|No) echo "  Aborting."; exit 0 ;;
+  esac
+  echo ""
+
   # ── Install Ollama ────────────────────────────────────────────
   info "Checking for Ollama..."
   if command -v ollama &> /dev/null; then
@@ -561,17 +771,11 @@ if [ "$INSTALL_MODE" = "native" ]; then
     fi
 
     # Wait for Ollama to be ready
-    RETRIES=0
-    MAX_RETRIES=30
-    until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do
-      RETRIES=$((RETRIES + 1))
-      if [ $RETRIES -ge $MAX_RETRIES ]; then
-        error "Ollama failed to start after 60 seconds."
-        echo "  Try running 'ollama serve' manually in another terminal."
-        exit 1
-      fi
-      sleep 2
-    done
+    if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
+      error "Ollama failed to start after 60 seconds."
+      echo "  Try running 'ollama serve' manually in another terminal."
+      exit 1
+    fi
     success "Ollama is running."
   fi
 
@@ -677,17 +881,11 @@ NATIVECONF
     GATEWAY_PID=$!
     disown "$GATEWAY_PID" 2>/dev/null || true
 
-    RETRIES=0
-    MAX_RETRIES=30
-    until curl -sf http://localhost:18789/healthz > /dev/null 2>&1; do
-      RETRIES=$((RETRIES + 1))
-      if [ $RETRIES -ge $MAX_RETRIES ]; then
-        error "OpenClaw Gateway failed to start after 60 seconds."
-        echo "  Check logs: cat $OPENCLAW_DIR/gateway.log"
-        exit 1
-      fi
-      sleep 2
-    done
+    if ! spin_wait 30 "http://localhost:18789/healthz" "Gateway"; then
+      error "OpenClaw Gateway failed to start after 60 seconds."
+      echo "  Check logs: cat $OPENCLAW_DIR/gateway.log"
+      exit 1
+    fi
     success "OpenClaw Gateway is running (PID $GATEWAY_PID)."
   fi
 

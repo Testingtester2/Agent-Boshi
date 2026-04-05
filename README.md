@@ -5,6 +5,7 @@
 The Librarian is a **one-click local AI developer assistant** built on
 [OpenClaw](https://github.com/openclaw/openclaw) +
 [Ollama](https://ollama.com) +
+[Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/) /
 [Qwen3.5](https://github.com/QwenLM/Qwen3.5). Pick a model tier to match your
 GPU (8GB–48GB VRAM) or run CPU-only. Everything runs on your machine — no
 API keys, no cloud, no data leaving your network.
@@ -63,7 +64,7 @@ The setup script will:
 1. Ask how you want to install (**Docker** or **Native**)
 2. Ask you to pick a model tier based on your GPU VRAM
 3. Auto-install all dependencies (Docker/Ollama/Node.js/OpenClaw)
-4. Download the selected Qwen3.5 model
+4. Download the selected model (Gemma 4 for upper tiers, Qwen3.5 for lower)
 5. Open `http://localhost:18789` in your browser
 
 ### Install Modes
@@ -127,7 +128,11 @@ Open **http://localhost:18789** when ready.
     └── skills/
         ├── dev-review/         # Code review skill
         │   └── SKILL.md
-        └── dev-debug/          # Debugging skill
+        ├── dev-debug/          # Debugging skill
+        │   └── SKILL.md
+        ├── find-skill/         # Discover & install skills from repos
+        │   └── SKILL.md
+        └── self-improving-agent/ # Self-analysis & improvement
             └── SKILL.md
 ```
 
@@ -163,26 +168,31 @@ apply — dangerous commands (`rm`, `sudo`) require manual approval.
 
 ### Model Tiers
 
-The installer lets you pick a model based on your hardware. Models are from the
-[Qwen3.5](https://github.com/QwenLM/Qwen3.5) and
-[Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) families, Apache 2.0 licensed,
-all with 256K native context window.
+The installer lets you pick a model based on your hardware. Lower tiers use
+[Qwen3.5](https://github.com/QwenLM/Qwen3.5) (Apache 2.0, 256K context), upper
+tiers use [Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/)
+(Apache 2.0, 256K context) which benchmarks higher on coding and reasoning tasks.
+[Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) remains available as a
+code-specialized alternative for tiers 4-5.
 
 | Tier | GPU Examples | Model | Params | Quant | Download | Min VRAM | Notes |
 |------|-------------|-------|--------|-------|----------|----------|-------|
 | 1 — CPU | No GPU needed | `qwen3.5:4b` | 4B | Q4_K_M | ~3.4GB | N/A (8GB+ RAM) | Fast on modern CPUs. Good for simple tasks |
 | 2 — 8GB | RTX 3060 / 4060 | `qwen3.5:9b` | 9B | Q4_K_M | ~6.6GB | 6GB | **Default tier.** Strong all-round coding |
-| 3 — 16GB | RTX 4080 / 4070Ti-16GB | `qwen3.5:27b` | 27B | Q4_K_M | ~17GB | 14GB | Big jump in reasoning & code quality |
-| 4 — 24GB | RTX 4090 | `qwen3.5:35b` | 35B | Q4_K_M | ~24GB | 20GB | Best quality dense model |
+| 3 — 16GB | RTX 4080 / 4070Ti-16GB | `gemma4:26b` | 26B MoE (3.8B active) | Q4_K_M | ~18GB | 14GB | Gemma 4 MoE — code & reasoning optimized |
+| 4 — 24GB | RTX 4090 | `gemma4:31b` | 31B dense | Q4_K_M | ~20GB | 18GB | Best quality dense model |
 | | | *or* `qwen3-coder:30b-a3b` | 30B MoE (3.3B active) | Q4_K_M | ~19GB | 14GB | Code-specialized, very fast |
-| 5 — 48GB | A6000 / dual GPU | `qwen3.5:35b-q8_0` | 35B | Q8_0 | ~35GB | 40GB | Max quality (Q8 quantization) |
+| 5 — 48GB | A6000 / dual GPU | `gemma4:31b-it-q8_0` | 31B dense | Q8_0 | ~34GB | 36GB | Max quality (Q8 quantization) |
 | | | *or* `qwen3-coder:30b-a3b-q8_0` | 30B MoE (3.3B active) | Q8_0 | ~32GB | 28GB | Max quality code-specialized |
 
 For tiers 4-5, the setup script asks you to choose between:
-- **qwen3.5** — Best all-round agentic model (reasoning, planning, multimodal)
+- **gemma4** — Google Gemma 4, best coding & reasoning benchmarks, multimodal
 - **qwen3-coder** — Code-specialized MoE with only 3.3B active params (faster inference, 70% code training)
 
 Use `--coder` (Linux/macOS) or `-Coder` (Windows) to skip the prompt and pick qwen3-coder directly.
+
+The installer also **auto-detects your GPU VRAM** via `nvidia-smi` and recommends
+the best tier for your hardware.
 
 **Which tier should I pick?**
 - Run `nvidia-smi` to check your VRAM
@@ -192,15 +202,15 @@ Use `--coder` (Linux/macOS) or `-Coder` (Windows) to skip the prompt and pick qw
 
 **Switching tiers later (Docker):**
 ```bash
-docker exec librarian-ollama ollama pull qwen3.5:27b
-# Edit openclaw/config.json5 → change model.name to "qwen3.5:27b"
+docker exec librarian-ollama ollama pull gemma4:31b
+# Edit openclaw/config.json5 → change model.name to "gemma4:31b"
 docker compose restart openclaw-gateway
 ```
 
 **Switching tiers later (Native):**
 ```bash
-ollama pull qwen3.5:27b
-# Edit ~/.openclaw/config.json5 → change model.name to "qwen3.5:27b"
+ollama pull gemma4:31b
+# Edit ~/.openclaw/config.json5 → change model.name to "gemma4:31b"
 pkill -f 'openclaw serve' && openclaw serve --config ~/.openclaw/config.json5 &
 ```
 
@@ -261,10 +271,10 @@ See the **Model Tiers** table above for full details. Quick summary:
 | Your GPU | VRAM | Run `./setup.sh --tier` | Experience |
 |----------|------|-------------------------|------------|
 | No GPU | — | `--tier 1` or `--cpu` | Usable (slower, CPU inference) |
-| RTX 3060 / 4060 | 8GB | `--tier 2` | Good (9B model, fast) |
-| RTX 4080 / 4070Ti-16GB | 16GB | `--tier 3` | Great (27B model, strong reasoning) |
-| RTX 4090 | 24GB | `--tier 4` | Excellent (35B model, best dense) |
-| A6000 / dual GPU | 48GB+ | `--tier 5` | Best quality (35B Q8 quantization) |
+| RTX 3060 / 4060 | 8GB | `--tier 2` | Good (Qwen 9B, fast) |
+| RTX 4080 / 4070Ti-16GB | 16GB | `--tier 3` | Great (Gemma 4 26B MoE, strong reasoning) |
+| RTX 4090 | 24GB | `--tier 4` | Excellent (Gemma 4 31B, best dense) |
+| A6000 / dual GPU | 48GB+ | `--tier 5` | Best quality (Gemma 4 31B Q8) |
 
 Speed depends on model size, context length, and system configuration. Larger
 models are smarter but generate tokens more slowly on the same hardware.
@@ -293,6 +303,113 @@ Native mode has lighter security controls:
 3. **Recommended: run in a VM** — use Multipass, WSL2, or a cloud VM for host isolation
 
 For more, see the [OpenClaw security docs](https://docs.openclaw.ai/gateway/sandboxing).
+
+---
+
+## After Install — What To Do Next
+
+Once The Librarian is running at `http://localhost:18789`:
+
+1. **Say hello** — The Librarian will introduce itself and explain its abilities
+2. **Try a code review** — Paste a file or point it at your project: *"Review src/app.ts for bugs"*
+3. **Debug something** — Describe a bug: *"I'm getting a null pointer in the login flow"*
+4. **Ask it to find skills** — *"What skills do you have?"* or *"Find me a skill for testing"*
+5. **Let it self-improve** — After a session: *"Analyze your performance and suggest improvements"*
+
+### Installed Skills
+
+| Skill | What it does |
+|-------|-------------|
+| **dev-review** | Code review — finds bugs, security issues, anti-patterns |
+| **dev-debug** | Debugging — systematic bug hunting with root cause analysis |
+| **find-skill** | Discover and install new skills from OpenClaw repositories |
+| **self-improving-agent** | Analyze performance and improve over time |
+
+---
+
+## Uninstall
+
+### Quick Uninstall (Interactive)
+
+```bash
+# Linux/macOS
+./setup.sh --uninstall
+
+# Windows (PowerShell)
+.\setup.ps1 -Uninstall
+```
+
+This walks you through removing Docker containers/volumes and/or native config.
+
+### Manual Uninstall
+
+**Docker mode:**
+```bash
+cd openclaw-agents
+docker compose down -v              # Remove containers + volumes
+docker rmi openclaw-sandbox:bookworm-slim  # Remove sandbox image
+```
+
+**Native mode:**
+```bash
+pkill -f 'openclaw serve'           # Stop gateway
+rm -rf ~/.openclaw                  # Remove config + logs
+# Optionally:
+ollama rm qwen3.5:9b                # Remove model (replace with your model)
+sudo rm /usr/local/bin/ollama       # Remove Ollama binary
+```
+
+**Windows native:**
+```powershell
+Stop-Process -Name openclaw -Force  # Stop gateway
+Remove-Item -Recurse ~\.openclaw    # Remove config
+# Optionally:
+ollama rm qwen3.5:9b                # Remove model
+winget uninstall Ollama.Ollama      # Remove Ollama
+```
+
+---
+
+## Troubleshooting
+
+### "Ollama failed to start after 60 seconds"
+
+- **Docker mode:** Check logs with `docker compose logs ollama`
+- **Native mode:** Try `ollama serve` manually in a separate terminal
+- If Ollama was already running, the port may be in use. Check with `lsof -i :11434` (Linux/macOS) or `Get-NetTCPConnection -LocalPort 11434` (Windows)
+
+### "OpenClaw Gateway failed to start"
+
+- **Docker mode:** `docker compose logs openclaw-gateway`
+- **Native mode:** `cat ~/.openclaw/gateway.log`
+- Make sure port 18789 is free
+
+### Model download is slow or fails
+
+- Ollama downloads from `registry.ollama.ai`. If your connection is slow, try a smaller tier
+- Resume a failed download: just run `ollama pull <model>` again — it resumes where it left off
+- Check disk space: models need 3-35GB depending on tier
+
+### GPU not detected
+
+- Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) for Docker GPU access
+- Run `nvidia-smi` to verify your GPU driver is working
+- The installer falls back to CPU mode automatically if no GPU is found
+
+### "Port is already in use"
+
+- Another Ollama or OpenClaw instance may be running
+- Stop it first: `docker compose down` or `pkill -f 'openclaw serve'`
+- Or use different ports by editing `docker-compose.yml`
+
+### Browser doesn't open automatically
+
+- Navigate manually to `http://localhost:18789`
+
+### Model runs out of VRAM
+
+- Switch to a smaller tier: re-run the installer with `--tier <N>`
+- Or use `--cpu` for CPU-only inference (slower but always works)
 
 ---
 
