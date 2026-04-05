@@ -25,7 +25,7 @@
 #   3) 16GB VRAM — gemma4:26b             (~18GB download)   [RTX 4080/4070Ti-16GB]
 #   4) 24GB VRAM — gemma4:31b             (~20GB download)   [RTX 4090]
 #                  or qwen3-coder:30b-a3b (~19GB, code-specialized MoE)
-#   5) 48GB VRAM — gemma4:31b-it-q8_0    (~34GB, Q8 quality) [A6000/dual GPU]
+#   5) 32GB VRAM — gemma4:31b-it-q8_0    (~34GB, Q8 quality) [RTX 5090/A6000]
 #                  or qwen3-coder:30b-a3b-q8_0 (~32GB, code-specialized MoE Q8)
 ###############################################################################
 
@@ -102,7 +102,7 @@ detect_vram_mb() {
 
 suggest_tier() {
   local vram_mb=$1
-  if [ "$vram_mb" -ge 40000 ]; then echo 5
+  if [ "$vram_mb" -ge 28000 ]; then echo 5
   elif [ "$vram_mb" -ge 20000 ]; then echo 4
   elif [ "$vram_mb" -ge 14000 ]; then echo 3
   elif [ "$vram_mb" -ge 6000 ]; then echo 2
@@ -212,7 +212,7 @@ for arg in "$@"; do
       echo "  3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB"
       echo "  4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090"
       echo "              or qwen3-coder:30b-a3b   (~19GB)   with --coder"
-      echo "  5  48GB VRAM  gemma4:31b-it-q8_0    (~34GB)   A6000 / dual GPU (Q8)"
+      echo "  5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)"
       echo "              or qwen3-coder:30b-a3b-q8_0 (~32GB) with --coder (Q8)"
       exit 0
       ;;
@@ -338,7 +338,7 @@ tier_label()   {
     2) echo "8GB VRAM    (qwen3.5:9b)             — RTX 3060 / 4060" ;;
     3) echo "16GB VRAM   (gemma4:26b MoE)          — RTX 4080 / 4070Ti-16GB" ;;
     4) echo "24GB VRAM   (gemma4:31b)              — RTX 4090" ;;
-    5) echo "48GB VRAM   (gemma4:31b-it-q8_0)      — A6000 / dual GPU (best)" ;;
+    5) echo "32GB VRAM   (gemma4:31b-it-q8_0)      — RTX 5090 / A6000 (best)" ;;
   esac
 }
 

@@ -1,6 +1,9 @@
 # Self-Improving Agent
 
+## Description
 Captures learnings, errors, and corrections to enable continuous improvement.
+Every Shadowcat encounter teaches The Librarian something new — this skill
+ensures those lessons are never forgotten.
 
 Based on [pskoett/self-improving-agent](https://clawhub.ai/pskoett/self-improving-agent) (v3.0.13, MIT-0).
 

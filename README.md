@@ -186,7 +186,7 @@ code-specialized alternative for tiers 4-5.
 | 3 — 16GB | RTX 4080 / 4070Ti-16GB | `gemma4:26b` | 26B MoE (3.8B active) | Q4_K_M | ~18GB | 14GB | Gemma 4 MoE — code & reasoning optimized |
 | 4 — 24GB | RTX 4090 | `gemma4:31b` | 31B dense | Q4_K_M | ~20GB | 18GB | Best quality dense model |
 | | | *or* `qwen3-coder:30b-a3b` | 30B MoE (3.3B active) | Q4_K_M | ~19GB | 14GB | Code-specialized, very fast |
-| 5 — 48GB | A6000 / dual GPU | `gemma4:31b-it-q8_0` | 31B dense | Q8_0 | ~34GB | 36GB | Max quality (Q8 quantization) |
+| 5 — 32GB | RTX 5090 / A6000 | `gemma4:31b-it-q8_0` | 31B dense | Q8_0 | ~34GB | 28GB | Max quality (Q8 quantization) |
 | | | *or* `qwen3-coder:30b-a3b-q8_0` | 30B MoE (3.3B active) | Q8_0 | ~32GB | 28GB | Max quality code-specialized |
 
 For tiers 4-5, the setup script asks you to choose between:
@@ -278,7 +278,7 @@ See the **Model Tiers** table above for full details. Quick summary:
 | RTX 3060 / 4060 | 8GB | `--tier 2` | Good (Qwen 9B, fast) |
 | RTX 4080 / 4070Ti-16GB | 16GB | `--tier 3` | Great (Gemma 4 26B MoE, strong reasoning) |
 | RTX 4090 | 24GB | `--tier 4` | Excellent (Gemma 4 31B, best dense) |
-| A6000 / dual GPU | 48GB+ | `--tier 5` | Best quality (Gemma 4 31B Q8) |
+| RTX 5090 / A6000 | 32GB+ | `--tier 5` | Best quality (Gemma 4 31B Q8) |
 
 Speed depends on model size, context length, and system configuration. Larger
 models are smarter but generate tokens more slowly on the same hardware.

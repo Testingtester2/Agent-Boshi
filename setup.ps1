@@ -23,7 +23,7 @@
 #   3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB
 #   4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090
 #                 or qwen3-coder:30b-a3b (~19GB, code-specialized MoE)
-#   5  48GB VRAM  gemma4:31b-it-q8_0    (~34GB)   A6000 / dual GPU (Q8)
+#   5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)
 #                 or qwen3-coder:30b-a3b-q8_0 (~32GB, code-specialized MoE Q8)
 ###############################################################################
 
@@ -71,7 +71,7 @@ if ($Help) {
     Write-Host "  3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB"
     Write-Host "  4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090"
     Write-Host "              or qwen3-coder:30b-a3b   (~19GB)   with -Coder"
-    Write-Host "  5  48GB VRAM  gemma4:31b-it-q8_0    (~34GB)   A6000 / dual GPU (Q8)"
+    Write-Host "  5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)"
     Write-Host "              or qwen3-coder:30b-a3b-q8_0 (~32GB) with -Coder (Q8)"
     exit 0
 }
@@ -120,7 +120,7 @@ function Get-GpuVramMB {
 }
 
 function Get-SuggestedTier([int]$VramMB) {
-    if ($VramMB -ge 40000) { return 5 }
+    if ($VramMB -ge 28000) { return 5 }
     if ($VramMB -ge 20000) { return 4 }
     if ($VramMB -ge 14000) { return 3 }
     if ($VramMB -ge 6000)  { return 2 }
@@ -251,7 +251,7 @@ $TierLabels = @{
     2 = "8GB VRAM    (qwen3.5:9b)             - RTX 3060 / 4060"
     3 = "16GB VRAM   (gemma4:26b MoE)          - RTX 4080 / 4070Ti-16GB"
     4 = "24GB VRAM   (gemma4:31b)              - RTX 4090"
-    5 = "48GB VRAM   (gemma4:31b-it-q8_0)      - A6000 / dual GPU (best)"
+    5 = "32GB VRAM   (gemma4:31b-it-q8_0)      - RTX 5090 / A6000 (best)"
 }
 
 $TierNotes = @{

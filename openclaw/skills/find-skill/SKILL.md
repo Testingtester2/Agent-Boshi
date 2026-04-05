@@ -1,6 +1,8 @@
 # Find Skills
 
+## Description
 Discover OpenClaw skills across multiple platforms and registries.
+Scout the Ancient Lore Repositories for new abilities to add to The Librarian's arsenal.
 
 Based on [lq-productor/find-skills-skill-1-0-0](https://clawhub.ai/lq-productor/find-skills-skill-1-0-0) (v1.0.0, MIT-0).
 
