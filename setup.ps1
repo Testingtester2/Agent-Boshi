@@ -20,10 +20,10 @@
 # Model Tiers:
 #   1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM
 #   2  8GB VRAM   qwen3.5:9b            (~6.6GB)  RTX 3060 / 4060
-#   3  16GB VRAM  qwen3.5:27b           (~17GB)   RTX 4080 / 4070Ti-16GB
-#   4  24GB VRAM  qwen3.5:35b           (~24GB)   RTX 4090
+#   3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB
+#   4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090
 #                 or qwen3-coder:30b-a3b (~19GB, code-specialized MoE)
-#   5  48GB VRAM  qwen3.5:35b-q8_0      (~35GB)   A6000 / dual GPU (Q8)
+#   5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)
 #                 or qwen3-coder:30b-a3b-q8_0 (~32GB, code-specialized MoE Q8)
 ###############################################################################
 
@@ -33,6 +33,7 @@ param(
     [switch]$Help,
     [switch]$Docker,
     [switch]$Native,
+    [switch]$Uninstall,
     [ValidateRange(1,5)][int]$Tier = 0
 )
 
@@ -46,13 +47,13 @@ Write-Host "  |   The Librarian                                        |" -Foreg
 Write-Host "  |   Keeper of the Ancient Code                           |" -ForegroundColor Cyan
 Write-Host "  |                                                        |" -ForegroundColor Cyan
 Write-Host "  |   A Shiba dev-sage from Shibatopia                     |" -ForegroundColor Cyan
-Write-Host "  |   Powered by OpenClaw + Ollama + Qwen3.5               |" -ForegroundColor Cyan
+Write-Host "  |   Powered by OpenClaw + Ollama + Gemma4/Qwen3.5        |" -ForegroundColor Cyan
 Write-Host "  |                                                        |" -ForegroundColor Cyan
 Write-Host "  +========================================================+" -ForegroundColor Cyan
 Write-Host ""
 
 if ($Help) {
-    Write-Host "Usage: .\setup.ps1 [-Docker|-Native] [-Cpu] [-Tier <1-5>] [-Coder]"
+    Write-Host "Usage: .\setup.ps1 [-Docker|-Native] [-Cpu] [-Tier <1-5>] [-Coder] [-Uninstall]"
     Write-Host ""
     Write-Host "Install modes:"
     Write-Host "  -Docker      Run everything in Docker containers (needs Docker Desktop)"
@@ -61,15 +62,16 @@ if ($Help) {
     Write-Host "Options:"
     Write-Host "  -Cpu         Run without GPU (CPU-only inference, uses qwen3.5:4b)"
     Write-Host "  -Tier <N>    Skip the interactive menu and use tier N directly"
-    Write-Host "  -Coder       Use qwen3-coder (code-specialized) instead of qwen3.5 for tiers 4-5"
+    Write-Host "  -Coder       Use qwen3-coder (code-specialized) instead of gemma4 for tiers 4-5"
+    Write-Host "  -Uninstall   Remove The Librarian (Docker containers/volumes or native install)"
     Write-Host ""
     Write-Host "Tiers:"
     Write-Host "  1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM"
     Write-Host "  2  8GB VRAM   qwen3.5:9b            (~6.6GB)  RTX 3060 / 4060"
-    Write-Host "  3  16GB VRAM  qwen3.5:27b           (~17GB)   RTX 4080 / 4070Ti-16GB"
-    Write-Host "  4  24GB VRAM  qwen3.5:35b           (~24GB)   RTX 4090"
+    Write-Host "  3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB"
+    Write-Host "  4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090"
     Write-Host "              or qwen3-coder:30b-a3b   (~19GB)   with -Coder"
-    Write-Host "  5  48GB VRAM  qwen3.5:35b-q8_0      (~35GB)   A6000 / dual GPU (Q8)"
+    Write-Host "  5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)"
     Write-Host "              or qwen3-coder:30b-a3b-q8_0 (~32GB) with -Coder (Q8)"
     exit 0
 }
@@ -78,6 +80,134 @@ function Write-Info($msg)    { Write-Host "[INFO]  $msg" -ForegroundColor Blue }
 function Write-Ok($msg)      { Write-Host "[OK]    $msg" -ForegroundColor Green }
 function Write-Warn($msg)    { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }
 function Write-Err($msg)     { Write-Host "[ERROR] $msg" -ForegroundColor Red }
+
+# -- Spinner wait function ----------------------------------------------------
+function Wait-ForUrl {
+    param([string]$Url, [int]$MaxRetries = 30, [string]$Label = "service")
+    $spinChars = @('|','/','-','\')
+    $retries = 0
+    while ($true) {
+        try {
+            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
+            if ($resp.StatusCode -eq 200) {
+                Write-Host "`r                                          `r" -NoNewline
+                return $true
+            }
+        } catch {}
+        $retries++
+        if ($retries -ge $MaxRetries) {
+            Write-Host "`r                                          `r" -NoNewline
+            return $false
+        }
+        $spin = $spinChars[$retries % 4]
+        Write-Host "`r  $spin Waiting... ($retries/$MaxRetries) " -NoNewline
+        Start-Sleep -Seconds 2
+    }
+}
+
+# -- VRAM auto-detection ------------------------------------------------------
+function Get-GpuVramMB {
+    try {
+        $nvsmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+        if ($nvsmi) {
+            $output = & nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null
+            if ($LASTEXITCODE -eq 0 -and $output) {
+                return [int]($output.Trim().Split("`n")[0])
+            }
+        }
+    } catch {}
+    return 0
+}
+
+function Get-SuggestedTier([int]$VramMB) {
+    if ($VramMB -ge 28000) { return 5 }
+    if ($VramMB -ge 20000) { return 4 }
+    if ($VramMB -ge 14000) { return 3 }
+    if ($VramMB -ge 6000)  { return 2 }
+    return 1
+}
+
+# -- Disk space check ---------------------------------------------------------
+$ModelDiskGB = @{ 1 = 5; 2 = 8; 3 = 20; 4 = 22; 5 = 36 }
+
+function Test-DiskSpace([int]$NeededGB) {
+    try {
+        $drive = (Get-Location).Drive
+        $freeGB = [math]::Floor($drive.Free / 1GB)
+        if ($freeGB -lt $NeededGB) {
+            Write-Warn "Low disk space: ${freeGB}GB available, ~${NeededGB}GB needed for model download."
+            $choice = Read-Host "  Continue anyway? [y/N]"
+            if ($choice -ne "y" -and $choice -ne "Y") {
+                Write-Host "  Aborting."
+                exit 0
+            }
+        }
+    } catch {}
+}
+
+# -- Port conflict check ------------------------------------------------------
+function Test-PortFree([int]$Port, [string]$Name) {
+    try {
+        $listener = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        if ($listener) {
+            Write-Warn "Port $Port is already in use ($Name)."
+            Write-Warn "Another service may be running. The install may fail or conflict."
+            $choice = Read-Host "  Continue anyway? [y/N]"
+            if ($choice -ne "y" -and $choice -ne "Y") {
+                Write-Host "  Aborting."
+                exit 0
+            }
+        }
+    } catch {}
+}
+
+# -- Uninstall ----------------------------------------------------------------
+if ($Uninstall) {
+    Write-Host ""
+    Write-Host "  Uninstall The Librarian" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1)  Docker - Remove containers, images, and volumes" -ForegroundColor Cyan
+    Write-Host "    2)  Native - Remove config, stop services" -ForegroundColor Cyan
+    Write-Host "    3)  Both" -ForegroundColor Cyan
+    Write-Host ""
+
+    do {
+        $unChoice = Read-Host "  What to uninstall? [1/2/3]"
+    } while ($unChoice -ne "1" -and $unChoice -ne "2" -and $unChoice -ne "3")
+
+    if ($unChoice -eq "1" -or $unChoice -eq "3") {
+        Write-Info "Removing Docker containers and volumes..."
+        Set-Location $scriptDir
+        try { & docker compose down -v 2>$null } catch {}
+        try { & docker rmi openclaw-sandbox:bookworm-slim 2>$null } catch {}
+        Write-Ok "Docker containers, volumes, and sandbox image removed."
+    }
+
+    if ($unChoice -eq "2" -or $unChoice -eq "3") {
+        Write-Info "Stopping native services..."
+        try { Stop-Process -Name openclaw -Force -ErrorAction SilentlyContinue } catch {}
+
+        $openclawDir = Join-Path $env:USERPROFILE ".openclaw"
+        if (Test-Path $openclawDir) {
+            $rmChoice = Read-Host "  Remove $openclawDir config directory? [y/N]"
+            if ($rmChoice -eq "y" -or $rmChoice -eq "Y") {
+                Remove-Item -Recurse -Force $openclawDir
+                Write-Ok "Removed $openclawDir"
+            } else {
+                Write-Info "Kept $openclawDir"
+            }
+        }
+        Write-Ok "Native services stopped."
+    }
+
+    Write-Host ""
+    Write-Host "  Note: Ollama and downloaded models are not removed."
+    Write-Host "  To remove models:  ollama rm <model>"
+    Write-Host "  To remove Ollama:  winget uninstall Ollama.Ollama"
+    Write-Host ""
+    Write-Ok "Uninstall complete."
+    exit 0
+}
 
 # -- Check / Install Git ------------------------------------------------------
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
@@ -103,33 +233,33 @@ if (-not $gitCmd) {
 $TierModels = @{
     1 = "qwen3.5:4b"
     2 = "qwen3.5:9b"
-    3 = "qwen3.5:27b"
-    4 = "qwen3.5:35b"
-    5 = "qwen3.5:35b-q8_0"
+    3 = "gemma4:26b"
+    4 = "gemma4:31b"
+    5 = "gemma4:31b-it-q8_0"
 }
 
 $TierSizes = @{
     1 = "~3.4GB"
     2 = "~6.6GB"
-    3 = "~17GB"
-    4 = "~24GB"
-    5 = "~35GB"
+    3 = "~18GB"
+    4 = "~20GB"
+    5 = "~34GB"
 }
 
 $TierLabels = @{
     1 = "CPU-only    (qwen3.5:4b)             - Lightweight, needs 8GB+ RAM"
     2 = "8GB VRAM    (qwen3.5:9b)             - RTX 3060 / 4060"
-    3 = "16GB VRAM   (qwen3.5:27b)            - RTX 4080 / 4070Ti-16GB"
-    4 = "24GB VRAM   (qwen3.5:35b)            - RTX 4090"
-    5 = "48GB VRAM   (qwen3.5:35b-q8_0)       - A6000 / dual GPU (best)"
+    3 = "16GB VRAM   (gemma4:26b MoE)          - RTX 4080 / 4070Ti-16GB"
+    4 = "24GB VRAM   (gemma4:31b)              - RTX 4090"
+    5 = "32GB VRAM   (gemma4:31b-it-q8_0)      - RTX 5090 / A6000 (best)"
 }
 
 $TierNotes = @{
     1 = "4B params - lightweight model for CPU inference. Needs 8GB+ system RAM."
     2 = "9B params, Q4_K_M quantization - fits comfortably in 8GB VRAM."
-    3 = "27B params, Q4_K_M quantization - strong reasoning, 256K context."
-    4 = "35B params, Q4_K_M quantization - best quality dense model for 24GB VRAM."
-    5 = "35B params, Q8_0 - max quality for 48GB+ VRAM."
+    3 = "Google Gemma 4 26B MoE (3.8B active), Q4_K_M - code & reasoning optimized, 256K context."
+    4 = "Google Gemma 4 31B dense, Q4_K_M - best quality model for 24GB VRAM, 256K context."
+    5 = "Google Gemma 4 31B dense, Q8_0 - max quality for 48GB+ VRAM."
 }
 
 # Coder model alternatives for tiers 4-5
@@ -184,19 +314,36 @@ if ($Cpu -and $Tier -gt 0 -and $Tier -ne 1) {
 if ($Cpu) { $Tier = 1 }
 
 if ($Tier -eq 0) {
+    # Auto-detect VRAM
+    $detectedVram = Get-GpuVramMB
+    $suggestedTier = 0
+    if ($detectedVram -gt 0) {
+        $suggestedTier = Get-SuggestedTier $detectedVram
+        $vramGB = [math]::Floor($detectedVram / 1024)
+        Write-Ok "Detected GPU with ${vramGB}GB VRAM - recommended tier: $suggestedTier"
+    }
+
     Write-Host ""
     Write-Host "  Choose your model tier:" -ForegroundColor White
     Write-Host ""
     for ($i = 1; $i -le 5; $i++) {
-        Write-Host "    $i)  $($TierLabels[$i])" -ForegroundColor Cyan
+        if ($i -eq $suggestedTier) {
+            Write-Host "    $i)  $($TierLabels[$i])  <-- recommended" -ForegroundColor Green
+        } else {
+            Write-Host "    $i)  $($TierLabels[$i])" -ForegroundColor Cyan
+        }
     }
     Write-Host ""
-    Write-Host "  Not sure? Run 'nvidia-smi' to check your VRAM." -ForegroundColor Yellow
-    Write-Host "  No GPU? Pick option 1 (CPU-only)." -ForegroundColor Yellow
+    if ($suggestedTier -eq 0) {
+        Write-Host "  Not sure? Run 'nvidia-smi' to check your VRAM." -ForegroundColor Yellow
+        Write-Host "  No GPU? Pick option 1 (CPU-only)." -ForegroundColor Yellow
+    }
     Write-Host ""
 
+    $defaultTier = if ($suggestedTier -gt 0) { $suggestedTier } else { 2 }
     do {
-        $input = Read-Host "  Enter tier [1-5]"
+        $input = Read-Host "  Enter tier [1-5] (default: $defaultTier)"
+        if ($input -eq "") { $input = "$defaultTier" }
         $Tier = [int]$input
     } while ($Tier -lt 1 -or $Tier -gt 5)
     Write-Host ""
@@ -209,7 +356,7 @@ if ($Tier -ge 4 -and -not $Coder) {
     Write-Host ""
     Write-Host "  Choose your model variant for tier $Tier`:" -ForegroundColor White
     Write-Host ""
-    Write-Host "    a)  qwen3.5  - General-purpose, strong agentic reasoning, 256K context" -ForegroundColor Cyan
+    Write-Host "    a)  gemma4   - Google Gemma 4, best code & reasoning, multimodal, 256K context" -ForegroundColor Cyan
     Write-Host "        $($TierModels[$Tier]) ($($TierSizes[$Tier]) download)"
     Write-Host ""
     Write-Host "    b)  qwen3-coder - Code-specialized MoE (3.3B active params, very fast)" -ForegroundColor Cyan
@@ -318,6 +465,22 @@ if ($InstallMode -eq "docker") {
         }
     }
 
+    # -- Pre-flight checks ---------------------------------------------------
+    Test-PortFree 11434 "Ollama"
+    Test-PortFree 18789 "OpenClaw Gateway"
+    Test-DiskSpace $ModelDiskGB[$Tier]
+
+    # Confirmation
+    Write-Host ""
+    Write-Host "  Ready to install:" -ForegroundColor White
+    Write-Host "    Mode:      Docker"
+    Write-Host "    Model:     $Model ($ModelSize download)"
+    if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
+    Write-Host ""
+    $proceed = Read-Host "  Proceed? [Y/n]"
+    if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
+    Write-Host ""
+
     # -- Start Services -------------------------------------------------------
     Set-Location $scriptDir
 
@@ -331,21 +494,11 @@ if ($InstallMode -eq "docker") {
 
     # Wait for Ollama
     Write-Info "Waiting for Ollama to initialize..."
-    $retries = 0
-    $maxRetries = 30
-    do {
-        Start-Sleep -Seconds 2
-        $retries++
-        try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-            if ($resp.StatusCode -eq 200) { break }
-        } catch {}
-        if ($retries -ge $maxRetries) {
-            Write-Err "Ollama failed to start after 60 seconds."
-            Write-Host "  Check logs: docker compose logs ollama"
-            exit 1
-        }
-    } while ($true)
+    if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
+        Write-Err "Ollama failed to start after 60 seconds."
+        Write-Host "  Check logs: docker compose logs ollama"
+        exit 1
+    }
     Write-Ok "Ollama is ready."
 
     # Pull model
@@ -388,20 +541,11 @@ WORKDIR /home/sandbox
 
     # Wait for OpenClaw Gateway
     Write-Info "Waiting for OpenClaw Gateway to start..."
-    $retries = 0
-    do {
-        Start-Sleep -Seconds 2
-        $retries++
-        try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:18789/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-            if ($resp.StatusCode -eq 200) { break }
-        } catch {}
-        if ($retries -ge $maxRetries) {
-            Write-Err "OpenClaw Gateway failed to start after 60 seconds."
-            Write-Host "  Check logs: docker compose logs openclaw-gateway"
-            exit 1
-        }
-    } while ($true)
+    if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
+        Write-Err "OpenClaw Gateway failed to start after 60 seconds."
+        Write-Host "  Check logs: docker compose logs openclaw-gateway"
+        exit 1
+    }
     Write-Ok "OpenClaw Gateway is running."
 
     # -- Done (Docker) --------------------------------------------------------
@@ -441,6 +585,22 @@ WORKDIR /home/sandbox
 ###############################################################################
 if ($InstallMode -eq "native") {
 
+    # -- Pre-flight checks ---------------------------------------------------
+    Test-PortFree 11434 "Ollama"
+    Test-PortFree 18789 "OpenClaw Gateway"
+    Test-DiskSpace $ModelDiskGB[$Tier]
+
+    # Confirmation
+    Write-Host ""
+    Write-Host "  Ready to install:" -ForegroundColor White
+    Write-Host "    Mode:      Native (host install)"
+    Write-Host "    Model:     $Model ($ModelSize download)"
+    if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
+    Write-Host ""
+    $proceed = Read-Host "  Proceed? [Y/n]"
+    if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
+    Write-Host ""
+
     # -- Install Ollama -------------------------------------------------------
     Write-Info "Checking for Ollama..."
     $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
@@ -478,21 +638,12 @@ if ($InstallMode -eq "native") {
     } else {
         # Start Ollama in background
         Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
-        $retries = 0
-        $maxRetries = 30
-        do {
-            Start-Sleep -Seconds 2
-            $retries++
-            try {
-                $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-                if ($resp.StatusCode -eq 200) { break }
-            } catch {}
-            if ($retries -ge $maxRetries) {
-                Write-Err "Ollama failed to start after 60 seconds."
-                Write-Host "  Try running 'ollama serve' manually in another terminal."
-                exit 1
-            }
-        } while ($true)
+        Write-Info "Waiting for Ollama..."
+        if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
+            Write-Err "Ollama failed to start after 60 seconds."
+            Write-Host "  Try running 'ollama serve' manually in another terminal."
+            exit 1
+        }
         Write-Ok "Ollama is running."
     }
 
@@ -606,21 +757,12 @@ if ($InstallMode -eq "native") {
         $logFile = Join-Path $openclawDir "gateway.log"
         Start-Process -FilePath "openclaw" -ArgumentList "serve","--config",$configArg -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
 
-        $retries = 0
-        $maxRetries = 30
-        do {
-            Start-Sleep -Seconds 2
-            $retries++
-            try {
-                $resp = Invoke-WebRequest -Uri "http://localhost:18789/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-                if ($resp.StatusCode -eq 200) { break }
-            } catch {}
-            if ($retries -ge $maxRetries) {
-                Write-Err "OpenClaw Gateway failed to start after 60 seconds."
-                Write-Host "  Check logs: Get-Content $logFile"
-                exit 1
-            }
-        } while ($true)
+        Write-Info "Waiting for OpenClaw Gateway..."
+        if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
+            Write-Err "OpenClaw Gateway failed to start after 60 seconds."
+            Write-Host "  Check logs: Get-Content $logFile"
+            exit 1
+        }
         Write-Ok "OpenClaw Gateway is running."
     }
 
