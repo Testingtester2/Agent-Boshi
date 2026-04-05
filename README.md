@@ -130,10 +130,14 @@ Open **http://localhost:18789** when ready.
         │   └── SKILL.md
         ├── dev-debug/          # Debugging skill
         │   └── SKILL.md
-        ├── find-skill/         # Discover & install skills from repos
+        ├── find-skill/         # Discover & install skills from ClawHub
         │   └── SKILL.md
-        └── self-improving-agent/ # Self-analysis & improvement
-            └── SKILL.md
+        └── self-improving-agent/ # Structured learning from mistakes
+            ├── SKILL.md
+            └── .learnings/
+                ├── LEARNINGS.md
+                ├── ERRORS.md
+                └── FEATURE_REQUESTS.md
 ```
 
 ### The Librarian's Personality (`openclaw/SOUL.md`)
@@ -322,8 +326,8 @@ Once The Librarian is running at `http://localhost:18789`:
 |-------|-------------|
 | **dev-review** | Code review — finds bugs, security issues, anti-patterns |
 | **dev-debug** | Debugging — systematic bug hunting with root cause analysis |
-| **find-skill** | Discover and install new skills from OpenClaw repositories |
-| **self-improving-agent** | Analyze performance and improve over time |
+| **find-skill** | Search [ClawHub](https://clawhub.ai) and OpenClaw registries for skills |
+| **self-improving-agent** | Log learnings, errors, and corrections to `.learnings/` for continuous improvement |
 
 ---
 
