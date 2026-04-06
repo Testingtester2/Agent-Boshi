@@ -62,10 +62,11 @@ chmod +x setup.sh && ./setup.sh
 
 The setup script will:
 1. Ask how you want to install (**Docker** or **Native**)
-2. Ask you to pick a model tier based on your GPU VRAM
-3. Auto-install all dependencies (Docker/Ollama/Node.js/OpenClaw)
-4. Download the selected model (Gemma 4 for upper tiers, Qwen3.5 for lower)
-5. Open `http://localhost:18789` in your browser
+2. Ask where your Ollama server is (**Local** or **Remote** on the network)
+3. Auto-detect your GPU VRAM and recommend a model tier
+4. Auto-install all dependencies (Docker/Ollama/Node.js/OpenClaw)
+5. Download the selected model (Gemma 4 for upper tiers, Qwen3.5 for lower)
+6. Open `http://localhost:18789` in your browser
 
 ### Install Modes
 
@@ -73,6 +74,9 @@ The setup script will:
 |------|----------|---------------|------------|
 | **Docker** | Easy setup & cleanup | Docker Engine (Linux) or Docker Desktop (macOS via Homebrew) | Full Docker sandbox isolation |
 | **Native** | Better GPU perf, VMs | Ollama, Node.js, OpenClaw Gateway | None (run in a VM for isolation) |
+
+Both modes support **remote Ollama** — skip local Ollama install and connect to
+a GPU server on your network instead. See [Remote Ollama Server](#remote-ollama-server) below.
 
 > **Tip:** If you're running in a VM (Multipass, WSL2, etc.), native mode gives
 > the best performance and the VM itself provides isolation.
@@ -91,6 +95,32 @@ The setup script will:
 ./setup.sh --cpu
 .\setup.ps1 -Cpu
 ```
+
+### Remote Ollama Server
+
+Run The Librarian in a VM or lightweight machine while using an Ollama server
+on a separate GPU machine on your network. The setup script prompts for this
+interactively, or use the `--ollama-url` flag:
+
+```bash
+# Linux/macOS — point to Ollama on another machine
+./setup.sh --native --tier 4 --ollama-url http://192.168.1.100:11434
+
+# Windows
+.\setup.ps1 -Native -Tier 4 -OllamaUrl http://192.168.1.100:11434
+```
+
+This skips Ollama installation and model download on the local machine. You
+must pull the model on the remote server yourself:
+
+```bash
+# On the GPU machine running Ollama:
+ollama pull gemma4:31b
+```
+
+> **Note:** Make sure Ollama on the remote machine is listening on
+> `0.0.0.0:11434` (not just localhost). Set `OLLAMA_HOST=0.0.0.0` on the
+> remote before starting Ollama.
 
 ### Manual Docker Compose
 
