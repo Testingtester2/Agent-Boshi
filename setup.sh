@@ -467,7 +467,7 @@ fi
 # ── Tier selection menu ─────────────────────────────────────────
 if [ -z "$TIER" ]; then
   # Auto-detect VRAM and suggest a tier
-  DETECTED_VRAM=$(detect_vram_mb)
+  DETECTED_VRAM=$(detect_vram_mb) || DETECTED_VRAM=0
   SUGGESTED_TIER=""
   if [ "$DETECTED_VRAM" -gt 0 ] 2>/dev/null; then
     SUGGESTED_TIER=$(suggest_tier "$DETECTED_VRAM")
