@@ -966,6 +966,7 @@ if [ "$INSTALL_MODE" = "native" ]; then
 
   // Gateway settings
   gateway: {
+    mode: "local",
     bind: "lan"
   },
 
@@ -990,7 +991,7 @@ NATIVECONF
   if curl -sf http://localhost:18789/healthz > /dev/null 2>&1; then
     success "OpenClaw Gateway is already running."
   else
-    openclaw gateway --port 18789 &> "$OPENCLAW_DIR/gateway.log" &
+    openclaw gateway --port 18789 --allow-unconfigured &> "$OPENCLAW_DIR/gateway.log" &
     GATEWAY_PID=$!
     disown "$GATEWAY_PID" 2>/dev/null || true
 

@@ -814,6 +814,7 @@ if ($InstallMode -eq "native") {
 
   // Gateway settings
   gateway: {
+    mode: "local",
     bind: "lan"
   },
 
@@ -844,7 +845,7 @@ if ($InstallMode -eq "native") {
     } else {
         $configArg = Join-Path $openclawDir "config.json5"
         $logFile = Join-Path $openclawDir "gateway.log"
-        Start-Process -FilePath "openclaw" -ArgumentList "gateway","--port","18789" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+        Start-Process -FilePath "openclaw" -ArgumentList "gateway","--port","18789","--allow-unconfigured" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
 
         Write-Info "Waiting for OpenClaw Gateway..."
         if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
