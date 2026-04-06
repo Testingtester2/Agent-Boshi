@@ -319,6 +319,24 @@ else
   success "Git is available."
 fi
 
+# ── Check / Install curl ──────────────────────────────────────
+if ! command -v curl &> /dev/null; then
+  info "curl is not installed. Installing..."
+  if command -v apt-get &> /dev/null; then
+    sudo apt-get update && sudo apt-get install -y curl
+  elif command -v dnf &> /dev/null; then
+    sudo dnf install -y curl
+  elif command -v brew &> /dev/null; then
+    brew install curl
+  else
+    error "Could not install curl. Please install curl and re-run."
+    exit 1
+  fi
+  success "curl installed."
+else
+  success "curl is available."
+fi
+
 # ── Model tier definitions ─────────────────────────────────────
 # Each tier: MODEL_TAG  DOWNLOAD_SIZE  DESCRIPTION
 tier_model()   {
