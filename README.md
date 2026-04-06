@@ -62,10 +62,11 @@ chmod +x setup.sh && ./setup.sh
 
 The setup script will:
 1. Ask how you want to install (**Docker** or **Native**)
-2. Ask you to pick a model tier based on your GPU VRAM
-3. Auto-install all dependencies (Docker/Ollama/Node.js/OpenClaw)
-4. Download the selected model (Gemma 4 for upper tiers, Qwen3.5 for lower)
-5. Open `http://localhost:18789` in your browser
+2. Ask where your Ollama server is (**Local** or **Remote** on the network)
+3. Auto-detect your GPU VRAM and recommend a model tier
+4. Auto-install all dependencies (Docker/Ollama/Node.js/OpenClaw)
+5. Download the selected model (Gemma 4 for upper tiers, Qwen3.5 for lower)
+6. Open `http://localhost:18789` in your browser
 
 ### Install Modes
 
@@ -73,6 +74,9 @@ The setup script will:
 |------|----------|---------------|------------|
 | **Docker** | Easy setup & cleanup | Docker Engine (Linux) or Docker Desktop (macOS via Homebrew) | Full Docker sandbox isolation |
 | **Native** | Better GPU perf, VMs | Ollama, Node.js, OpenClaw Gateway | None (run in a VM for isolation) |
+
+Both modes support **remote Ollama** — skip local Ollama install and connect to
+a GPU server on your network instead. See [Remote Ollama Server](#remote-ollama-server) below.
 
 > **Tip:** If you're running in a VM (Multipass, WSL2, etc.), native mode gives
 > the best performance and the VM itself provides isolation.
