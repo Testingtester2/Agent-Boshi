@@ -97,7 +97,7 @@ detect_vram_mb() {
     fi
   fi
   echo "0"
-  return 1
+  return 0
 }
 
 suggest_tier() {
