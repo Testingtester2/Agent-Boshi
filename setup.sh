@@ -941,48 +941,61 @@ if [ "$INSTALL_MODE" = "native" ]; then
   # ── Deploy configuration ─────────────────────────────────────
   OPENCLAW_DIR="$HOME/.openclaw"
   info "Deploying configuration to $OPENCLAW_DIR..."
+  mkdir -p "$OPENCLAW_DIR/workspace"
   mkdir -p "$OPENCLAW_DIR/skills"
+  mkdir -p "$OPENCLAW_DIR/agents/main/agent"
 
-  # Copy personality and config
-  cp "$SCRIPT_DIR/openclaw/SOUL.md" "$OPENCLAW_DIR/SOUL.md"
+  # Copy SOUL.md to workspace (where OpenClaw reads bootstrap files)
+  cp "$SCRIPT_DIR/openclaw/SOUL.md" "$OPENCLAW_DIR/workspace/SOUL.md"
+
+  # Copy skills
   cp -r "$SCRIPT_DIR/openclaw/skills/"* "$OPENCLAW_DIR/skills/" 2>/dev/null || true
 
-  # Write native config
-  cat > "$OPENCLAW_DIR/config.json5" << NATIVECONF
-{
-  // ── The Librarian — OpenClaw Configuration (native install) ───
-  //
-  // Model: $MODEL via Ollama at $OLLAMA_URL
-  // Install mode: native (no Docker sandboxing)
+  # Generate a gateway auth token
+  GATEWAY_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 
-  // Model provider configuration
-  model: {
-    provider: "ollama",
-    name: "$MODEL",
-    ollama: {
-      baseUrl: "$OLLAMA_URL"
+  # Write openclaw.json (the real config file OpenClaw uses)
+  cat > "$OPENCLAW_DIR/openclaw.json" << OCJSON
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "$GATEWAY_TOKEN"
     }
   },
-
-  // Gateway settings
-  gateway: {
-    mode: "local",
-    bind: "lan"
+  "models": {
+    "ollamaDiscovery": {
+      "enabled": true
+    },
+    "providers": {
+      "ollama": {
+        "baseUrl": "$OLLAMA_URL",
+        "api": "ollama",
+        "models": []
+      }
+    }
   },
-
-  // Tool approval policies
-  tools: {
-    requireApproval: [
-      "shell:rm",
-      "shell:sudo",
-      "write:/etc/*",
-      "write:/usr/*"
+  "agents": {
+    "defaults": {
+      "model": "ollama/$MODEL",
+      "workspace": "~/.openclaw/workspace"
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "name": "The Librarian",
+        "model": "ollama/$MODEL"
+      }
     ]
   }
 }
-NATIVECONF
+OCJSON
 
-  success "Config deployed: model set to $MODEL"
+  success "Config deployed: model set to ollama/$MODEL"
 
   # ── Start OpenClaw Gateway ───────────────────────────────────
   info "Starting OpenClaw Gateway..."
@@ -991,7 +1004,7 @@ NATIVECONF
   if curl -sf http://localhost:18789/healthz > /dev/null 2>&1; then
     success "OpenClaw Gateway is already running."
   else
-    openclaw gateway --port 18789 --allow-unconfigured &> "$OPENCLAW_DIR/gateway.log" &
+    openclaw gateway --port 18789 &> "$OPENCLAW_DIR/gateway.log" &
     GATEWAY_PID=$!
     disown "$GATEWAY_PID" 2>/dev/null || true
 
@@ -1009,10 +1022,16 @@ NATIVECONF
   echo -e "${GREEN}  The Librarian is ready!  (native install)${NC}"
   echo -e "${GREEN}==========================================================${NC}"
   echo ""
-  echo -e "  Model:  ${BOLD}$MODEL${NC} ($(tier_label "$TIER"))"
+  echo -e "  Model:  ${BOLD}ollama/$MODEL${NC} ($(tier_label "$TIER"))"
   echo ""
   echo "  Open in your browser:"
   echo -e "    ${CYAN}http://localhost:18789${NC}"
+  echo ""
+  echo -e "  Gateway Token (paste into UI or bookmark the URL below):"
+  echo -e "    ${BOLD}$GATEWAY_TOKEN${NC}"
+  echo ""
+  echo -e "  Direct URL (no token prompt):"
+  echo -e "    ${CYAN}http://localhost:18789/chat?token=$GATEWAY_TOKEN${NC}"
   echo ""
   echo "  Useful commands:"
   echo "    tail -f ~/.openclaw/gateway.log         # Watch gateway logs"
@@ -1021,14 +1040,14 @@ NATIVECONF
   echo ""
   echo "  Change model:"
   echo "    ollama pull <model>"
-  echo "    Then update 'model.name' in ~/.openclaw/config.json5"
+  echo "    Edit agents.defaults.model in ~/.openclaw/openclaw.json"
   echo ""
   echo "  Stop everything:"
   echo "    pkill -f 'openclaw gateway'              # Stop gateway"
   echo "    ollama stop $MODEL                      # Unload model"
   echo "    # Or: sudo systemctl stop ollama        # Stop Ollama service"
   echo ""
-  echo "  Config: $OPENCLAW_DIR/config.json5"
+  echo "  Config: $OPENCLAW_DIR/openclaw.json"
   echo ""
   echo -e "  ${YELLOW}NOTE: Native mode does not include Docker sandboxing."
   echo -e "  For isolation, run this setup inside a VM.${NC}"

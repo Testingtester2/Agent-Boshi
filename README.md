@@ -137,7 +137,7 @@ docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
 docker exec librarian-ollama ollama pull qwen3.5:9b
 
 # Update config to match
-# Edit openclaw/config.json5 → model.name
+# Edit openclaw/config.json5 → model.name (Docker) or ~/.openclaw/openclaw.json (native)
 ```
 
 Open **http://localhost:18789** when ready.
@@ -154,7 +154,7 @@ Open **http://localhost:18789** when ready.
 ├── setup.ps1                   # One-click setup (Windows)
 └── openclaw/
     ├── SOUL.md                 # The Librarian's personality & identity
-    ├── config.json5            # OpenClaw config (model, sandbox, tools)
+    ├── config.json5            # OpenClaw config for Docker mode
     └── skills/
         ├── dev-review/         # Code review skill
         │   └── SKILL.md
@@ -244,7 +244,7 @@ docker compose restart openclaw-gateway
 **Switching tiers later (Native):**
 ```bash
 ollama pull gemma4:31b
-# Edit ~/.openclaw/config.json5 → change model.name to "gemma4:31b"
+# Edit agents.defaults.model in ~/.openclaw/openclaw.json → "ollama/gemma4:31b"
 pkill -f 'openclaw gateway' && openclaw gateway --port 18789 &
 ```
 
@@ -293,7 +293,7 @@ sudo systemctl stop ollama
 
 # Switch models
 ollama pull qwen3.5:27b
-# Then edit ~/.openclaw/config.json5 → model.name
+# Then edit agents.defaults.model in ~/.openclaw/openclaw.json
 ```
 
 ---
