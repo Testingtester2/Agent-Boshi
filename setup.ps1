@@ -786,51 +786,62 @@ if ($InstallMode -eq "native") {
     $openclawDir = Join-Path $env:USERPROFILE ".openclaw"
     Write-Info "Deploying configuration to $openclawDir..."
     New-Item -ItemType Directory -Path $openclawDir -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $openclawDir "workspace") -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $openclawDir "skills") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $openclawDir "agents" "main" "agent") -Force | Out-Null
 
-    # Copy personality and skills
-    Copy-Item (Join-Path $scriptDir "openclaw" "SOUL.md") (Join-Path $openclawDir "SOUL.md") -Force
+    # Copy SOUL.md to workspace (where OpenClaw reads bootstrap files)
+    Copy-Item (Join-Path $scriptDir "openclaw" "SOUL.md") (Join-Path $openclawDir "workspace" "SOUL.md") -Force
     $skillsSrc = Join-Path $scriptDir "openclaw" "skills" "*"
     if (Test-Path (Join-Path $scriptDir "openclaw" "skills")) {
         Copy-Item $skillsSrc (Join-Path $openclawDir "skills") -Recurse -Force
     }
 
-    # Write native config
-    $nativeConfig = @"
-{
-  // -- The Librarian -- OpenClaw Configuration (native install) ---
-  //
-  // Model: $Model via Ollama at $OllamaUrl
-  // Install mode: native (no Docker sandboxing)
+    # Generate gateway auth token
+    $GatewayToken = -join ((1..24) | ForEach-Object { "{0:x2}" -f (Get-Random -Minimum 0 -Maximum 256) })
 
-  // Model provider configuration
-  model: {
-    provider: "ollama",
-    name: "$Model",
-    ollama: {
-      baseUrl: "$OllamaUrl"
+    # Write openclaw.json (the real config file OpenClaw uses)
+    $openclawConfig = @"
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "$GatewayToken"
     }
   },
-
-  // Gateway settings
-  gateway: {
-    mode: "local",
-    bind: "lan"
+  "models": {
+    "ollamaDiscovery": {
+      "enabled": true
+    },
+    "providers": {
+      "ollama": {
+        "baseUrl": "$OllamaUrl",
+        "api": "ollama",
+        "models": []
+      }
+    }
   },
-
-  // Tool approval policies
-  tools: {
-    requireApproval: [
-      "shell:rm",
-      "shell:sudo",
-      "write:C:\\Windows\\*",
-      "write:C:\\Program Files\\*"
+  "agents": {
+    "defaults": {
+      "model": "ollama/$Model",
+      "workspace": "~/.openclaw/workspace"
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "name": "The Librarian",
+        "model": "ollama/$Model"
+      }
     ]
   }
 }
 "@
-    Set-Content -Path (Join-Path $openclawDir "config.json5") -Value $nativeConfig -NoNewline
-    Write-Ok "Config deployed: model set to $Model"
+    Set-Content -Path (Join-Path $openclawDir "openclaw.json") -Value $openclawConfig -NoNewline
+    Write-Ok "Config deployed: model set to ollama/$Model"
 
     # -- Start OpenClaw Gateway -----------------------------------------------
     Write-Info "Starting OpenClaw Gateway..."
@@ -843,9 +854,8 @@ if ($InstallMode -eq "native") {
     if ($gatewayRunning) {
         Write-Ok "OpenClaw Gateway is already running."
     } else {
-        $configArg = Join-Path $openclawDir "config.json5"
         $logFile = Join-Path $openclawDir "gateway.log"
-        Start-Process -FilePath "openclaw" -ArgumentList "gateway","--port","18789","--allow-unconfigured" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+        Start-Process -FilePath "openclaw" -ArgumentList "gateway","--port","18789" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
 
         Write-Info "Waiting for OpenClaw Gateway..."
         if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
@@ -862,10 +872,16 @@ if ($InstallMode -eq "native") {
     Write-Host "    The Librarian is ready!  (native install)" -ForegroundColor Green
     Write-Host "  ========================================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Model:  $Model ($($TierLabels[$Tier]))"
+    Write-Host "  Model:  ollama/$Model ($($TierLabels[$Tier]))"
     Write-Host ""
     Write-Host "  Open in your browser:"
     Write-Host "    http://localhost:18789" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Gateway Token (paste into UI or bookmark the URL below):" -ForegroundColor Yellow
+    Write-Host "    $GatewayToken" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Direct URL (no token prompt):"
+    Write-Host "    http://localhost:18789/chat?token=$GatewayToken" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  Useful commands:"
     Write-Host "    Get-Content ~\.openclaw\gateway.log -Tail 50   # Watch gateway logs"
@@ -874,13 +890,13 @@ if ($InstallMode -eq "native") {
     Write-Host ""
     Write-Host "  Change model:" -ForegroundColor Yellow
     Write-Host "    ollama pull <model>"
-    Write-Host "    Then update 'model.name' in ~\.openclaw\config.json5"
+    Write-Host "    Edit agents.defaults.model in ~\.openclaw\openclaw.json"
     Write-Host ""
     Write-Host "  Stop everything:" -ForegroundColor Yellow
     Write-Host "    Stop-Process -Name openclaw                     # Stop gateway"
     Write-Host "    ollama stop $Model                              # Unload model"
     Write-Host ""
-    Write-Host "  Config: $openclawDir\config.json5"
+    Write-Host "  Config: $openclawDir\openclaw.json"
     Write-Host ""
     Write-Host "  NOTE: Native mode does not include Docker sandboxing." -ForegroundColor Yellow
     Write-Host "  For isolation, run this setup inside a VM." -ForegroundColor Yellow
