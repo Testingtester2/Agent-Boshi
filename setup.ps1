@@ -773,10 +773,10 @@ if ($InstallMode -eq "native") {
     if ($openclawCmd) {
         Write-Ok "OpenClaw Gateway is already installed."
     } else {
-        & npm install -g @openclaw/gateway
+        & npm install -g openclaw@latest
         if ($LASTEXITCODE -ne 0) {
             Write-Err "OpenClaw Gateway installation failed."
-            Write-Host "  Try: npm install -g @openclaw/gateway"
+            Write-Host "  Try: npm install -g openclaw@latest"
             exit 1
         }
         Write-Ok "OpenClaw Gateway installed."

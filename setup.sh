@@ -929,10 +929,10 @@ if [ "$INSTALL_MODE" = "native" ]; then
   if command -v openclaw &> /dev/null; then
     success "OpenClaw Gateway is already installed."
   else
-    npm install -g @openclaw/gateway
+    npm install -g openclaw@latest
     if ! command -v openclaw &> /dev/null; then
       error "OpenClaw Gateway installation failed."
-      echo "  Try: npm install -g @openclaw/gateway"
+      echo "  Try: npm install -g openclaw@latest"
       exit 1
     fi
     success "OpenClaw Gateway installed."
