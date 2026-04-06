@@ -790,11 +790,11 @@ if ($InstallMode -eq "native") {
     New-Item -ItemType Directory -Path (Join-Path $openclawDir "skills") -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $openclawDir "agents" "main" "agent") -Force | Out-Null
 
-    # Copy SOUL.md to workspace (where OpenClaw reads bootstrap files)
-    Copy-Item (Join-Path $scriptDir "openclaw" "SOUL.md") (Join-Path $openclawDir "workspace" "SOUL.md") -Force
-    $skillsSrc = Join-Path $scriptDir "openclaw" "skills" "*"
-    if (Test-Path (Join-Path $scriptDir "openclaw" "skills")) {
-        Copy-Item $skillsSrc (Join-Path $openclawDir "skills") -Recurse -Force
+    # Copy personality and skills
+    Copy-Item "$scriptDir\openclaw\SOUL.md" "$openclawDir\SOUL.md" -Force
+    $skillsDir = "$scriptDir\openclaw\skills"
+    if (Test-Path $skillsDir) {
+        Copy-Item "$skillsDir\*" "$openclawDir\skills" -Recurse -Force
     }
 
     # Generate gateway auth token
