@@ -277,7 +277,7 @@ if [ "$DO_UNINSTALL" = true ]; then
 
   if [ "$UNINST_CHOICE" = "2" ] || [ "$UNINST_CHOICE" = "3" ]; then
     info "Stopping native services..."
-    pkill -f 'openclaw serve' 2>/dev/null || true
+    pkill -f 'openclaw gateway' 2>/dev/null || true
 
     if [ -d "$HOME/.openclaw" ]; then
       read -rp "  Remove ~/.openclaw config directory? [y/N]: " RM_CONFIG
@@ -966,6 +966,7 @@ if [ "$INSTALL_MODE" = "native" ]; then
 
   // Gateway settings
   gateway: {
+    mode: "local",
     bind: "lan"
   },
 
@@ -990,7 +991,7 @@ NATIVECONF
   if curl -sf http://localhost:18789/healthz > /dev/null 2>&1; then
     success "OpenClaw Gateway is already running."
   else
-    openclaw serve --config "$OPENCLAW_DIR/config.json5" &> "$OPENCLAW_DIR/gateway.log" &
+    openclaw gateway --port 18789 --allow-unconfigured &> "$OPENCLAW_DIR/gateway.log" &
     GATEWAY_PID=$!
     disown "$GATEWAY_PID" 2>/dev/null || true
 
@@ -1023,7 +1024,7 @@ NATIVECONF
   echo "    Then update 'model.name' in ~/.openclaw/config.json5"
   echo ""
   echo "  Stop everything:"
-  echo "    pkill -f 'openclaw serve'               # Stop gateway"
+  echo "    pkill -f 'openclaw gateway'              # Stop gateway"
   echo "    ollama stop $MODEL                      # Unload model"
   echo "    # Or: sudo systemctl stop ollama        # Stop Ollama service"
   echo ""

@@ -245,7 +245,7 @@ docker compose restart openclaw-gateway
 ```bash
 ollama pull gemma4:31b
 # Edit ~/.openclaw/config.json5 → change model.name to "gemma4:31b"
-pkill -f 'openclaw serve' && openclaw serve --config ~/.openclaw/config.json5 &
+pkill -f 'openclaw gateway' && openclaw gateway --port 18789 &
 ```
 
 ---
@@ -286,7 +286,7 @@ ollama ps
 ollama stop qwen3.5:9b
 
 # Stop gateway
-pkill -f 'openclaw serve'
+pkill -f 'openclaw gateway'
 
 # Stop Ollama (systemd)
 sudo systemctl stop ollama
@@ -386,7 +386,7 @@ docker rmi openclaw-sandbox:bookworm-slim  # Remove sandbox image
 
 **Native mode:**
 ```bash
-pkill -f 'openclaw serve'           # Stop gateway
+pkill -f 'openclaw gateway'           # Stop gateway
 rm -rf ~/.openclaw                  # Remove config + logs
 # Optionally:
 ollama rm qwen3.5:9b                # Remove model (replace with your model)
@@ -433,7 +433,7 @@ winget uninstall Ollama.Ollama      # Remove Ollama
 ### "Port is already in use"
 
 - Another Ollama or OpenClaw instance may be running
-- Stop it first: `docker compose down` or `pkill -f 'openclaw serve'`
+- Stop it first: `docker compose down` or `pkill -f 'openclaw gateway'`
 - Or use different ports by editing `docker-compose.yml`
 
 ### Browser doesn't open automatically
