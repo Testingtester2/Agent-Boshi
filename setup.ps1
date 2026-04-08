@@ -813,13 +813,11 @@ if ($InstallMode -eq "native") {
     }
   },
   "models": {
-    "ollamaDiscovery": {
-      "enabled": true
-    },
     "providers": {
       "ollama": {
         "baseUrl": "$OllamaUrl",
         "api": "ollama",
+        "apiKey": "ollama-local",
         "models": []
       }
     }
@@ -841,6 +839,24 @@ if ($InstallMode -eq "native") {
 }
 "@
     Set-Content -Path (Join-Path $openclawDir "openclaw.json") -Value $openclawConfig -NoNewline
+
+    # Write auth-profiles.json so the agent knows how to reach Ollama
+    $authProfiles = @"
+{
+  "version": 1,
+  "profiles": {
+    "ollama:default": {
+      "type": "api_key",
+      "provider": "ollama",
+      "key": "ollama-local"
+    }
+  },
+  "lastGood": {
+    "ollama": "ollama:default"
+  }
+}
+"@
+    Set-Content -Path (Join-Path $openclawDir "agents" "main" "agent" "auth-profiles.json") -Value $authProfiles -NoNewline
     Write-Ok "Config deployed: model set to ollama/$Model"
 
     # -- Start OpenClaw Gateway -----------------------------------------------

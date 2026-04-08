@@ -967,13 +967,11 @@ if [ "$INSTALL_MODE" = "native" ]; then
     }
   },
   "models": {
-    "ollamaDiscovery": {
-      "enabled": true
-    },
     "providers": {
       "ollama": {
         "baseUrl": "$OLLAMA_URL",
         "api": "ollama",
+        "apiKey": "ollama-local",
         "models": []
       }
     }
@@ -994,6 +992,23 @@ if [ "$INSTALL_MODE" = "native" ]; then
   }
 }
 OCJSON
+
+  # Write auth-profiles.json so the agent knows how to reach Ollama
+  cat > "$OPENCLAW_DIR/agents/main/agent/auth-profiles.json" << AUTHJSON
+{
+  "version": 1,
+  "profiles": {
+    "ollama:default": {
+      "type": "api_key",
+      "provider": "ollama",
+      "key": "ollama-local"
+    }
+  },
+  "lastGood": {
+    "ollama": "ollama:default"
+  }
+}
+AUTHJSON
 
   success "Config deployed: model set to ollama/$MODEL"
 
