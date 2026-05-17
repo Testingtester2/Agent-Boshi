@@ -1,11 +1,22 @@
+---
+name: self-improving-agent
+description: "Capture learnings, errors, and corrections for continuous improvement."
+version: 1.0.0
+author: Agent Boshi
+license: MIT
+platforms: [linux, macos, windows]
+metadata:
+  hermes:
+    tags: [learning, self-improvement, memory, errors, meta]
+    related_skills: [dev-review, dev-debug]
+---
+
 # Self-Improving Agent
 
 ## Description
 Captures learnings, errors, and corrections to enable continuous improvement.
-Every Shadowcat encounter teaches The Librarian something new — this skill
+Every Shadowcat encounter teaches Agent Boshi something new — this skill
 ensures those lessons are never forgotten.
-
-Based on [pskoett/self-improving-agent](https://clawhub.ai/pskoett/self-improving-agent) (v3.0.13, MIT-0).
 
 ## Trigger
 
@@ -63,10 +74,8 @@ What fixed it or what the correct approach is.
    block explaining the fix or correct approach.
 
 4. **Promotion:** When a learning is broadly applicable (not session-specific),
-   promote it to project-level files:
-   - `CLAUDE.md` — Project facts and conventions
-   - `AGENTS.md` — Workflow patterns and automation
-   - Mark the original entry status as `promoted`
+   promote it to Hermes persistent memory via the memory tool.
+   Mark the original entry status as `promoted`.
 
 5. **Periodic review:** When asked to "review learnings" or "improve yourself":
    - Summarize pending/unresolved entries

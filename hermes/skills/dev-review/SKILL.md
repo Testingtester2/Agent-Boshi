@@ -1,3 +1,16 @@
+---
+name: dev-review
+description: "Code review — find Shadowcats (bugs), anti-patterns, security issues, and style problems."
+version: 1.0.0
+author: Agent Boshi
+license: MIT
+platforms: [linux, macos, windows]
+metadata:
+  hermes:
+    tags: [code-review, bugs, security, quality]
+    related_skills: [dev-debug, self-improving-agent]
+---
+
 # Code Review Skill
 
 ## Description

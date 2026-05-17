@@ -1,5 +1,5 @@
 ###############################################################################
-# The Librarian — CPU-Only Override
+# Agent Boshi — CPU-Only Override
 #
 # Use this if you don't have an NVIDIA GPU:
 #   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
