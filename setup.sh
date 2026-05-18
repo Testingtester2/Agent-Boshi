@@ -22,7 +22,7 @@
 #   3) 16GB VRAM — devstral               (~14GB download)   [RTX 4080/4070Ti-16GB]
 #   4) 24GB VRAM — qwen3.6:27b            (~17GB download)   [RTX 4090]
 #                  or devstral             (~14GB, agentic code-specialized)
-#   5) 32GB VRAM — qwen3-coder-next       (~46GB download)   [RTX 5090/A6000]
+#   5) 32GB VRAM — qwen3-coder:30b         (~19GB download)   [RTX 5090/A6000]
 #                  or qwen2.5-coder:32b    (~22GB, battle-tested)
 ###############################################################################
 
@@ -105,7 +105,7 @@ suggest_tier() {
 # ── Disk space check ──────────────────────────────────────────
 model_disk_gb() {
   case "$1" in
-    1) echo 5 ;;  2) echo 7 ;;  3) echo 16 ;;  4) echo 20 ;;  5) echo 50 ;;
+    1) echo 5 ;;  2) echo 7 ;;  3) echo 16 ;;  4) echo 20 ;;  5) echo 24 ;;
   esac
 }
 
@@ -201,7 +201,7 @@ for arg in "$@"; do
       echo "  3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB"
       echo "  4  24GB VRAM  qwen3.6:27b             (~17GB)  RTX 4090 (SWE-bench king)"
       echo "              or devstral                (~14GB)  with --alt (agentic)"
-      echo "  5  32GB VRAM  qwen3-coder-next (80B MoE) (~46GB) RTX 5090 / A6000"
+      echo "  5  32GB VRAM  qwen3-coder:30b (MoE)     (~19GB)  RTX 5090 / A6000"
       echo "              or qwen2.5-coder:32b       (~22GB)  with --alt (battle-tested)"
       exit 0
       ;;
@@ -306,7 +306,7 @@ tier_model()   {
     2) echo "qwen2.5-coder:7b" ;;
     3) echo "devstral" ;;
     4) echo "qwen3.6:27b" ;;
-    5) echo "qwen3-coder-next" ;;
+    5) echo "qwen3-coder:30b" ;;
   esac
 }
 
@@ -316,7 +316,7 @@ tier_size()    {
     2) echo "~5GB" ;;
     3) echo "~14GB" ;;
     4) echo "~17GB" ;;
-    5) echo "~46GB" ;;
+    5) echo "~19GB" ;;
   esac
 }
 
@@ -326,7 +326,7 @@ tier_label()   {
     2) echo "8GB VRAM    (qwen2.5-coder:7b)          — Best coder at this size, HumanEval leader" ;;
     3) echo "16GB VRAM   (devstral 24B)               — Agentic coder, multi-file edits, 128K ctx" ;;
     4) echo "24GB VRAM   (qwen3.6:27b)                — SWE-bench 77.2%, matches Claude 4.5 Opus" ;;
-    5) echo "32GB VRAM   (qwen3-coder-next 80B MoE)   — Best dedicated coder, 3B active, 256K ctx" ;;
+    5) echo "32GB VRAM   (qwen3-coder:30b MoE)          — Code-specialized, 3.3B active, 256K ctx" ;;
   esac
 }
 
@@ -357,7 +357,7 @@ model_note()   {
       2) echo "Qwen2.5-Coder 7B — HumanEval leader in 7-8B class, stable and well-tested." ;;
       3) echo "Devstral 24B by Mistral + All Hands AI — purpose-built for agentic coding workflows." ;;
       4) echo "Qwen3.6 27B dense — THE coding king. SWE-bench 77.2%, Terminal-Bench matches Claude 4.5 Opus." ;;
-      5) echo "Qwen3-Coder-Next 80B MoE (3B active) — best dedicated coder, 256K context, agentic optimized." ;;
+      5) echo "Qwen3-Coder 30B MoE (3.3B active) — code-specialized, fast inference, 256K context." ;;
     esac
   fi
 }

@@ -28,7 +28,7 @@ guarding its home planet.
 ### Prerequisites
 
 - **NVIDIA GPU** recommended (8-48GB VRAM), or CPU-only mode
-- Disk space depends on tier (3GB-46GB for model weights)
+- Disk space depends on tier (3GB-22GB for model weights)
 
 > **Note:** The setup script auto-installs all dependencies (git, Python,
 > Ollama, Hermes Agent, etc.). You don't need to pre-install anything.
@@ -148,7 +148,7 @@ The installer selects the **best coding model** for your hardware:
 | 3 — 16GB | RTX 4080 / 4070Ti-16GB | `devstral` (24B) | Purpose-built agentic coder, multi-file edits | ~14GB | 14GB |
 | 4 — 24GB | RTX 4090 | `qwen3.6:27b` | **SWE-bench 77.2%**, matches Claude 4.5 Opus | ~17GB | 18GB |
 | | | *or* `devstral` | Agentic coder alternative | ~14GB | 14GB |
-| 5 — 32GB | RTX 5090 / A6000 | `qwen3-coder-next` (80B MoE) | Best dedicated coder, 3B active, 256K ctx | ~46GB | 32GB |
+| 5 — 32GB | RTX 5090 / A6000 | `qwen3-coder:30b` (30B MoE) | Code-specialized, 3.3B active, 256K ctx | ~19GB | 18GB |
 | | | *or* `qwen2.5-coder:32b` | 92.7% HumanEval, most mature | ~22GB | 22GB |
 
 Use `--alt` (Linux/macOS) or `-Alt` (Windows) to select the alternate model for tiers 4-5.
@@ -229,7 +229,7 @@ docker exec boshi-ollama ollama pull qwen2.5-coder:7b
 | RTX 3060 / 4060 | 8GB | `--tier 2` | Good (Qwen2.5-Coder 7B) |
 | RTX 4080 / 4070Ti-16GB | 16GB | `--tier 3` | Great (Devstral 24B, agentic) |
 | RTX 4090 | 24GB | `--tier 4` | Excellent (Qwen3.6 27B, SWE-bench king) |
-| RTX 5090 / A6000 | 32GB+ | `--tier 5` | Best (Qwen3-Coder-Next 80B MoE) |
+| RTX 5090 / A6000 | 32GB+ | `--tier 5` | Best (Qwen3-Coder 30B MoE + Q8) |
 
 ---
 
