@@ -12,6 +12,7 @@
 # Usage:
 #   chmod +x setup.sh
 #   ./setup.sh                      # Interactive setup
+#   ./setup.sh --sandbox            # Docker sandbox mode (isolated)
 #   ./setup.sh --cpu                # CPU-only mode (no GPU)
 #   ./setup.sh --tier <1-5>         # Skip menu, pick tier directly
 #   ./setup.sh --ollama-url <URL>   # Use a remote Ollama server
@@ -147,6 +148,66 @@ check_port() {
   fi
 }
 
+# ── Docker check / install ───────────────────────────────────
+check_docker() {
+  if command -v docker &> /dev/null; then
+    if docker info &> /dev/null; then
+      success "Docker is available and running."
+      return 0
+    else
+      warn "Docker is installed but the daemon is not running."
+      warn "Start Docker and re-run, or choose 'Local' install mode."
+      return 1
+    fi
+  else
+    info "Docker is not installed. Installing..."
+    if [[ "$(uname)" == "Darwin" ]]; then
+      if command -v brew &> /dev/null; then
+        brew install --cask docker
+        info "Docker Desktop installed. Please launch it from Applications."
+        warn "After starting Docker Desktop, re-run this script."
+        return 1
+      else
+        error "Please install Docker Desktop from https://docker.com/products/docker-desktop"
+        return 1
+      fi
+    else
+      curl -fsSL https://get.docker.com | sh
+      sudo usermod -aG docker "$USER" 2>/dev/null || true
+      if ! docker info &> /dev/null; then
+        sudo systemctl start docker 2>/dev/null || true
+      fi
+      if docker info &> /dev/null; then
+        success "Docker installed and running."
+        return 0
+      else
+        warn "Docker installed but may need a logout/login for group permissions."
+        warn "Try: sudo docker info"
+        return 1
+      fi
+    fi
+  fi
+}
+
+check_docker_compose() {
+  if docker compose version &> /dev/null 2>&1; then
+    return 0
+  elif command -v docker-compose &> /dev/null; then
+    return 0
+  else
+    error "Docker Compose not found. Please install Docker Compose."
+    return 1
+  fi
+}
+
+docker_compose_cmd() {
+  if docker compose version &> /dev/null 2>&1; then
+    echo "docker compose"
+  else
+    echo "docker-compose"
+  fi
+}
+
 # ── Banner ──────────────────────────────────────────────────────
 echo -e "${MAGENTA}"
 cat << 'BANNER'
@@ -170,10 +231,12 @@ TIER=""
 USE_ALT=""
 DO_UNINSTALL=false
 OLLAMA_URL=""
+INSTALL_MODE=""
 for arg in "$@"; do
   case "$arg" in
     --cpu) CPU_ONLY=true; TIER=1 ;;
     --alt) USE_ALT=true ;;
+    --sandbox) INSTALL_MODE="sandbox" ;;
     --uninstall) DO_UNINSTALL=true ;;
     --ollama-url)
       ;;
@@ -185,9 +248,10 @@ for arg in "$@"; do
       fi
       ;;
     --help|-h)
-      echo "Usage: ./setup.sh [--cpu] [--tier <1-5>] [--alt] [--ollama-url <URL>] [--uninstall]"
+      echo "Usage: ./setup.sh [--sandbox] [--cpu] [--tier <1-5>] [--alt] [--ollama-url <URL>] [--uninstall]"
       echo ""
       echo "Options:"
+      echo "  --sandbox       Use Docker sandbox mode (Hermes runs tools inside Docker)"
       echo "  --cpu           Run without GPU (CPU-only inference, uses gemma4:e4b)"
       echo "  --tier <N>      Skip the interactive menu and use tier N directly"
       echo "  --alt           Use alternate model for tiers 4-5"
@@ -253,11 +317,25 @@ if [ "$DO_UNINSTALL" = true ]; then
     esac
   fi
 
+  # Stop Docker containers if any
+  if command -v docker &> /dev/null; then
+    COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+    if [ -f "$COMPOSE_FILE" ]; then
+      if docker compose version &> /dev/null 2>&1; then
+        docker compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+      elif command -v docker-compose &> /dev/null; then
+        docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+      fi
+      info "Docker containers stopped."
+    fi
+  fi
+
   success "Hermes services stopped."
   echo ""
   echo "  Note: Ollama and downloaded models are not removed."
   echo "  To remove models:  ollama rm <model>"
   echo "  To remove Ollama:  sudo rm /usr/local/bin/ollama"
+  echo "  To remove Docker volumes: docker volume rm boshi-ollama-models"
   echo ""
   success "Uninstall complete."
   exit 0
@@ -297,6 +375,44 @@ if ! command -v curl &> /dev/null; then
   success "curl installed."
 else
   success "curl is available."
+fi
+
+# ── Install mode selection ────────────────────────────────────
+if [ -z "$INSTALL_MODE" ]; then
+  echo ""
+  echo -e "${BOLD}Choose install mode:${NC}"
+  echo ""
+  echo -e "  ${CYAN}1)${NC}  ${BOLD}Local${NC} — Install everything natively on this machine (default)"
+  echo -e "      ${YELLOW}Hermes + Ollama run directly. Fastest performance.${NC}"
+  echo ""
+  echo -e "  ${CYAN}2)${NC}  ${BOLD}Sandbox${NC} — Run tools inside Docker containers (isolated)"
+  echo -e "      ${YELLOW}Hermes stays native but executes code in a Docker sandbox.${NC}"
+  echo -e "      ${YELLOW}Ollama runs in Docker too. Requires Docker installed.${NC}"
+  echo ""
+
+  while true; do
+    read -rp "  Enter choice [1/2] (default: 1): " MODE_CHOICE
+    case "${MODE_CHOICE:-1}" in
+      1) INSTALL_MODE="local"; break ;;
+      2) INSTALL_MODE="sandbox"; break ;;
+      *) echo -e "  ${RED}Please enter 1 or 2.${NC}" ;;
+    esac
+  done
+  echo ""
+fi
+
+INSTALL_MODE="${INSTALL_MODE:-local}"
+
+if [ "$INSTALL_MODE" = "sandbox" ]; then
+  info "Sandbox mode selected — tools run inside Docker containers."
+  if ! check_docker; then
+    error "Docker is required for sandbox mode. Please install Docker and re-run."
+    exit 1
+  fi
+  if ! check_docker_compose; then
+    exit 1
+  fi
+  COMPOSE_CMD=$(docker_compose_cmd)
 fi
 
 # ── Model tier definitions ─────────────────────────────────────
@@ -510,10 +626,14 @@ check_port 9119 "Hermes Dashboard"
 # Confirmation before download
 echo ""
 echo -e "  ${BOLD}Ready to install:${NC}"
+echo -e "    Mode:      ${BOLD}$INSTALL_MODE${NC}"
 echo -e "    Model:     $MODEL ($MODEL_SIZE)"
 echo -e "    Ollama:    $OLLAMA_URL"
 if [ "$REMOTE_OLLAMA" = true ]; then
   echo -e "               ${YELLOW}(remote — model must be pulled on the server)${NC}"
+fi
+if [ "$INSTALL_MODE" = "sandbox" ]; then
+  echo -e "    Sandbox:   ${YELLOW}Tools run inside Docker containers${NC}"
 fi
 if [ "$CPU_ONLY" = true ]; then
   echo -e "    GPU:       CPU-only"
@@ -534,8 +654,34 @@ if [ "$REMOTE_OLLAMA" = true ]; then
   info "Using remote Ollama at $OLLAMA_URL"
   warn "Make sure '$MODEL' is pulled on the remote: ollama pull $MODEL"
   echo ""
+elif [ "$INSTALL_MODE" = "sandbox" ]; then
+  # ── Sandbox mode: Ollama in Docker via docker-compose ────────
+  info "Starting Ollama in Docker (sandbox mode)..."
+
+  COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+  if [ "$CPU_ONLY" = true ]; then
+    info "CPU-only mode: using CPU override."
+    BOSHI_MODEL="$MODEL" $COMPOSE_CMD -f "$COMPOSE_FILE" -f "$SCRIPT_DIR/docker-compose.cpu.yml" up -d
+  else
+    BOSHI_MODEL="$MODEL" $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
+  fi
+
+  info "Waiting for Ollama container to start..."
+  if ! spin_wait 30 "http://localhost:11434/api/tags" "Ollama"; then
+    error "Ollama container failed to start after 60 seconds."
+    echo "  Check: $COMPOSE_CMD -f $COMPOSE_FILE logs ollama"
+    exit 1
+  fi
+  success "Ollama is running in Docker."
+
+  # Pull model (the init container does this too, but let's be explicit)
+  info "Pulling $MODEL ($MODEL_SIZE download, this is a one-time operation)..."
+  echo "  $(model_note)"
+  echo ""
+  docker exec boshi-ollama ollama pull "$MODEL"
+  success "Model downloaded and ready."
 else
-  # ── Install Ollama ────────────────────────────────────────────
+  # ── Local mode: native Ollama install ─────────────────────────
   info "Checking for Ollama..."
   if command -v ollama &> /dev/null; then
     success "Ollama is already installed ($(ollama --version 2>/dev/null || echo 'unknown version'))."
@@ -646,9 +792,25 @@ success "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 # Configure Hermes to use Ollama as a custom endpoint
 OLLAMA_API_URL="${OLLAMA_URL}/v1"
 
+# Terminal backend: sandbox mode uses Docker, local mode uses native
+if [ "$INSTALL_MODE" = "sandbox" ]; then
+  TERMINAL_BLOCK="terminal:
+  backend: \"docker\"
+  docker_image: \"nikolaik/python-nodejs:python3.11-nodejs20\"
+  timeout: 180
+  lifetime_seconds: 300"
+else
+  TERMINAL_BLOCK="terminal:
+  backend: \"local\"
+  cwd: \".\"
+  timeout: 180
+  lifetime_seconds: 300"
+fi
+
 cat > "$HERMES_DIR/config.yaml" << HERMESCFG
 # Agent Boshi — Hermes Agent Configuration
 # Configured for local Ollama backend
+# Install mode: $INSTALL_MODE
 
 model:
   default: "$MODEL"
@@ -660,11 +822,7 @@ agent:
   reasoning_effort: "medium"
   verbose: false
 
-terminal:
-  backend: "local"
-  cwd: "."
-  timeout: 180
-  lifetime_seconds: 300
+$TERMINAL_BLOCK
 
 memory:
   memory_enabled: true
@@ -744,7 +902,11 @@ echo -e "${GREEN}==========================================================${NC}
 echo -e "${GREEN}  Agent Boshi is ready!${NC}"
 echo -e "${GREEN}==========================================================${NC}"
 echo ""
+echo -e "  Mode:   ${BOLD}$INSTALL_MODE${NC}"
 echo -e "  Model:  ${BOLD}$MODEL${NC} ($(tier_label "$TIER"))"
+if [ "$INSTALL_MODE" = "sandbox" ]; then
+  echo -e "  Sandbox: Tools run inside Docker (nikolaik/python-nodejs)"
+fi
 echo ""
 echo "  Open in your browser:"
 echo -e "    ${CYAN}http://localhost:9119${NC}"
@@ -768,8 +930,13 @@ echo "    hermes config set model.default <model>"
 echo ""
 echo "  Stop everything:"
 echo "    pkill -f 'hermes dashboard'              # Stop dashboard"
-echo "    ollama stop $MODEL                       # Unload model from VRAM"
-echo "    # Or: sudo systemctl stop ollama         # Stop Ollama service"
+if [ "$INSTALL_MODE" = "sandbox" ]; then
+  COMPOSE_FILE_REL="docker-compose.yml"
+  echo "    $COMPOSE_CMD -f $COMPOSE_FILE_REL down   # Stop Ollama container"
+else
+  echo "    ollama stop $MODEL                       # Unload model from VRAM"
+  echo "    # Or: sudo systemctl stop ollama         # Stop Ollama service"
+fi
 echo ""
 echo "  Config: $HERMES_DIR/config.yaml"
 echo "  Personality: $HERMES_DIR/SOUL.md"

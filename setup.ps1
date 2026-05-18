@@ -10,6 +10,7 @@
 #
 # Usage (run in PowerShell):
 #   .\setup.ps1                     # Interactive setup
+#   .\setup.ps1 -Sandbox            # Docker sandbox mode (isolated)
 #   .\setup.ps1 -Cpu                # CPU-only mode
 #   .\setup.ps1 -Tier 3             # Skip menu, use tier 3 (16GB)
 #   .\setup.ps1 -Tier 4 -Alt        # Use alternate model for tier 4-5
@@ -27,6 +28,7 @@
 param(
     [switch]$Cpu,
     [switch]$Alt,
+    [switch]$Sandbox,
     [switch]$Help,
     [switch]$Uninstall,
     [string]$OllamaUrl = "",
@@ -49,9 +51,10 @@ Write-Host "  +========================================================+" -Foreg
 Write-Host ""
 
 if ($Help) {
-    Write-Host "Usage: .\setup.ps1 [-Cpu] [-Tier <1-5>] [-Alt] [-OllamaUrl <URL>] [-Uninstall]"
+    Write-Host "Usage: .\setup.ps1 [-Sandbox] [-Cpu] [-Tier <1-5>] [-Alt] [-OllamaUrl <URL>] [-Uninstall]"
     Write-Host ""
     Write-Host "Options:"
+    Write-Host "  -Sandbox         Use Docker sandbox mode (Hermes runs tools inside Docker)"
     Write-Host "  -Cpu             Run without GPU (CPU-only inference, uses gemma4:e4b)"
     Write-Host "  -Tier <N>        Skip the interactive menu and use tier N directly"
     Write-Host "  -Alt             Use alternate model for tiers 4-5"
@@ -154,6 +157,29 @@ function Test-PortFree([int]$Port, [string]$Name) {
     } catch {}
 }
 
+# -- Docker check (for sandbox mode) ------------------------------------------
+function Test-DockerAvailable {
+    $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+    if (-not $dockerCmd) {
+        Write-Info "Docker is not installed."
+        Write-Info "Please install Docker Desktop from https://docker.com/products/docker-desktop"
+        return $false
+    }
+    try {
+        $null = docker info 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Docker is installed but the daemon is not running."
+            Write-Warn "Start Docker Desktop and re-run, or choose 'Local' install mode."
+            return $false
+        }
+    } catch {
+        Write-Warn "Docker is installed but cannot connect to the daemon."
+        return $false
+    }
+    Write-Ok "Docker is available and running."
+    return $true
+}
+
 # -- Uninstall ----------------------------------------------------------------
 if ($Uninstall) {
     Write-Host ""
@@ -173,12 +199,23 @@ if ($Uninstall) {
             Write-Info "Kept $hermesDir"
         }
     }
+    # Stop Docker containers if any
+    $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+    if ($dockerCmd) {
+        $composeFile = Join-Path $scriptDir "docker-compose.yml"
+        if (Test-Path $composeFile) {
+            try { docker compose -f $composeFile down 2>$null } catch {}
+            Write-Info "Docker containers stopped."
+        }
+    }
+
     Write-Ok "Hermes services stopped."
 
     Write-Host ""
     Write-Host "  Note: Ollama and downloaded models are not removed."
     Write-Host "  To remove models:  ollama rm <model>"
     Write-Host "  To remove Ollama:  winget uninstall Ollama.Ollama"
+    Write-Host "  To remove Docker volumes: docker volume rm boshi-ollama-models"
     Write-Host ""
     Write-Ok "Uninstall complete."
     exit 0
@@ -201,6 +238,39 @@ if (-not $gitCmd) {
     Write-Ok "Git installed."
 } else {
     Write-Ok "Git is available."
+}
+
+# -- Install mode selection ---------------------------------------------------
+$InstallMode = ""
+if ($Sandbox) { $InstallMode = "sandbox" }
+
+if ($InstallMode -eq "") {
+    Write-Host ""
+    Write-Host "  Choose install mode:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1)  Local - Install everything natively on this machine (default)" -ForegroundColor Cyan
+    Write-Host "        Hermes + Ollama run directly. Fastest performance." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "    2)  Sandbox - Run tools inside Docker containers (isolated)" -ForegroundColor Cyan
+    Write-Host "        Hermes stays native but executes code in a Docker sandbox." -ForegroundColor Yellow
+    Write-Host "        Ollama runs in Docker too. Requires Docker installed." -ForegroundColor Yellow
+    Write-Host ""
+
+    do {
+        $modeChoice = Read-Host "  Enter choice [1/2] (default: 1)"
+        if ($modeChoice -eq "") { $modeChoice = "1" }
+    } while ($modeChoice -ne "1" -and $modeChoice -ne "2")
+
+    if ($modeChoice -eq "2") { $InstallMode = "sandbox" } else { $InstallMode = "local" }
+    Write-Host ""
+}
+
+if ($InstallMode -eq "sandbox") {
+    Write-Info "Sandbox mode selected - tools run inside Docker containers."
+    if (-not (Test-DockerAvailable)) {
+        Write-Err "Docker is required for sandbox mode. Please install Docker and re-run."
+        exit 1
+    }
 }
 
 # -- Model tier definitions ---------------------------------------------------
@@ -388,9 +458,11 @@ Test-PortFree 9119 "Hermes Dashboard"
 # Confirmation
 Write-Host ""
 Write-Host "  Ready to install:" -ForegroundColor White
+Write-Host "    Mode:      $InstallMode" -ForegroundColor White
 Write-Host "    Model:     $Model ($ModelSize)"
 Write-Host "    Ollama:    $OllamaUrl"
 if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
+if ($InstallMode -eq "sandbox") { Write-Host "    Sandbox:   Tools run inside Docker containers" -ForegroundColor Yellow }
 if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
 Write-Host ""
 $proceed = Read-Host "  Proceed? [Y/n]"
@@ -405,8 +477,37 @@ if ($RemoteOllama) {
     Write-Info "Using remote Ollama at $OllamaUrl"
     Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
     Write-Host ""
+} elseif ($InstallMode -eq "sandbox") {
+    # -- Sandbox mode: Ollama in Docker via docker-compose -------------------
+    Write-Info "Starting Ollama in Docker (sandbox mode)..."
+    $composeFile = Join-Path $scriptDir "docker-compose.yml"
+    $cpuFile = Join-Path $scriptDir "docker-compose.cpu.yml"
+
+    $env:BOSHI_MODEL = $Model
+    if ($CpuOnly) {
+        Write-Info "CPU-only mode: using CPU override."
+        docker compose -f $composeFile -f $cpuFile up -d
+    } else {
+        docker compose -f $composeFile up -d
+    }
+    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start Ollama Docker container."; exit 1 }
+
+    Write-Info "Waiting for Ollama container to start..."
+    if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
+        Write-Err "Ollama container failed to start after 60 seconds."
+        Write-Host "  Check: docker compose -f $composeFile logs ollama"
+        exit 1
+    }
+    Write-Ok "Ollama is running in Docker."
+
+    Write-Info "Pulling $Model ($ModelSize download, one-time operation)..."
+    Write-Host "  $($TierNotes[$Tier])"
+    Write-Host ""
+    docker exec boshi-ollama ollama pull $Model
+    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
+    Write-Ok "Model downloaded and ready."
 } else {
-    # -- Install Ollama -------------------------------------------------------
+    # -- Local mode: native Ollama install -----------------------------------
     Write-Info "Checking for Ollama..."
     $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
     if ($ollamaCmd) {
@@ -526,9 +627,28 @@ Write-Ok "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 # -- Write Hermes config.yaml ------------------------------------------------
 $ollamaApiUrl = "$OllamaUrl/v1"
 
+if ($InstallMode -eq "sandbox") {
+    $terminalBlock = @"
+terminal:
+  backend: "docker"
+  docker_image: "nikolaik/python-nodejs:python3.11-nodejs20"
+  timeout: 180
+  lifetime_seconds: 300
+"@
+} else {
+    $terminalBlock = @"
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
+  lifetime_seconds: 300
+"@
+}
+
 $hermesConfig = @"
 # Agent Boshi - Hermes Agent Configuration
 # Configured for local Ollama backend
+# Install mode: $InstallMode
 
 model:
   default: "$Model"
@@ -540,11 +660,7 @@ agent:
   reasoning_effort: "medium"
   verbose: false
 
-terminal:
-  backend: "local"
-  cwd: "."
-  timeout: 180
-  lifetime_seconds: 300
+$terminalBlock
 
 memory:
   memory_enabled: true
@@ -615,7 +731,11 @@ Write-Host "  ========================================================" -Foregro
 Write-Host "    Agent Boshi is ready!" -ForegroundColor Green
 Write-Host "  ========================================================" -ForegroundColor Green
 Write-Host ""
+Write-Host "  Mode:   $InstallMode"
 Write-Host "  Model:  $Model ($($TierLabels[$Tier]))"
+if ($InstallMode -eq "sandbox") {
+    Write-Host "  Sandbox: Tools run inside Docker (nikolaik/python-nodejs)"
+}
 Write-Host ""
 Write-Host "  Open in your browser:"
 Write-Host "    http://localhost:9119" -ForegroundColor Cyan
@@ -638,7 +758,12 @@ Write-Host "    hermes config set model.default <model>"
 Write-Host ""
 Write-Host "  Stop everything:" -ForegroundColor Yellow
 Write-Host "    Stop-Process -Name hermes               # Stop dashboard"
-Write-Host "    ollama stop $Model                      # Unload model"
+if ($InstallMode -eq "sandbox") {
+    $composeFile = Join-Path $scriptDir "docker-compose.yml"
+    Write-Host "    docker compose -f $composeFile down  # Stop Ollama container"
+} else {
+    Write-Host "    ollama stop $Model                      # Unload model"
+}
 Write-Host ""
 Write-Host "  Config: $hermesDir\config.yaml"
 Write-Host "  Personality: $hermesDir\SOUL.md"
