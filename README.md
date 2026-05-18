@@ -60,21 +60,49 @@ chmod +x setup.sh && ./setup.sh
 ```
 
 The setup script will:
-1. Ask where your Ollama server is (**Local** or **Remote** on the network)
-2. Auto-detect your GPU VRAM and recommend a model tier
-3. Auto-install all dependencies (Python/Ollama/Hermes Agent)
-4. Download the selected coding model
-5. Deploy Agent Boshi's personality and skills
-6. Open `http://localhost:9119` in your browser (Hermes Dashboard)
+1. Ask your install mode (**Local** for native, or **Sandbox** for Docker isolation)
+2. Ask where your Ollama server is (**Local** or **Remote** on the network)
+3. Auto-detect your GPU VRAM and recommend a model tier
+4. Auto-install all dependencies (Python/Ollama/Hermes Agent, Docker for sandbox)
+5. Download the selected coding model
+6. Deploy Agent Boshi's personality and skills
+7. Open `http://localhost:9119` in your browser (Hermes Dashboard)
 
 **Skip the prompts (pick tier directly):**
 ```bash
 ./setup.sh --tier 4                # Use tier 4 (RTX 4090)
 ./setup.sh --cpu                   # CPU-only (no GPU needed)
 ./setup.sh --tier 4 --alt          # Use alternate model
+./setup.sh --sandbox               # Docker sandbox mode
+./setup.sh --sandbox --tier 3      # Sandbox + specific tier
 .\setup.ps1 -Tier 3               # Windows
 .\setup.ps1 -Cpu                  # Windows CPU-only
+.\setup.ps1 -Sandbox              # Windows sandbox mode
 ```
+
+### Install Modes
+
+The setup script supports two install modes:
+
+| Mode | What it does | Best for |
+|------|-------------|----------|
+| **Local** (default) | Hermes + Ollama run natively on your machine | Maximum performance, simplest setup |
+| **Sandbox** | Hermes runs natively, but executes tools inside Docker containers. Ollama also runs in Docker. | Isolation, reproducibility, keeping your host clean |
+
+In sandbox mode, Hermes uses `terminal.backend: "docker"` with the
+`nikolaik/python-nodejs:python3.11-nodejs20` image. Your code runs in an
+isolated container — no system packages polluted, no leftover processes.
+
+```bash
+# Linux/macOS — sandbox mode
+./setup.sh --sandbox
+
+# Windows — sandbox mode
+.\setup.ps1 -Sandbox
+```
+
+> **Note:** Sandbox mode requires Docker. The setup script will check for
+> Docker and attempt to install it if missing.
 
 ### Remote Ollama Server
 
@@ -201,9 +229,10 @@ research, and productivity. Use `hermes skills` to browse them.
 
 ---
 
-## Docker (Optional)
+## Docker
 
-If you prefer running Ollama in Docker (for isolation or convenience):
+The easiest way to use Docker is sandbox mode (`--sandbox`), which handles
+everything automatically. For manual Docker usage:
 
 ```bash
 # Start Ollama in Docker with GPU
