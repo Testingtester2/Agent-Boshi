@@ -1,38 +1,33 @@
 ###############################################################################
-# The Librarian - One-Click Setup (Windows PowerShell)
+# Agent Boshi - One-Click Setup (Windows PowerShell)
 #
 # What this does:
-#   1. Asks how you want to install (Docker or native on host)
-#   2. Asks you to pick a model tier based on your GPU VRAM
-#   3. Installs Ollama + OpenClaw Gateway
-#   4. Pulls the selected model
-#   5. Deploys The Librarian's personality (SOUL.md) and skills
-#   6. Opens the OpenClaw dashboard in your browser
+#   1. Asks you to pick a model tier based on your GPU VRAM
+#   2. Installs Ollama + Hermes Agent
+#   3. Pulls the selected coding model
+#   4. Deploys Agent Boshi's personality (SOUL.md) and skills
+#   5. Opens the Hermes dashboard in your browser
 #
 # Usage (run in PowerShell):
 #   .\setup.ps1                     # Interactive setup
-#   .\setup.ps1 -Docker             # Docker mode (skip install-mode prompt)
-#   .\setup.ps1 -Native             # Native mode (recommended for VMs)
 #   .\setup.ps1 -Cpu                # CPU-only mode
 #   .\setup.ps1 -Tier 3             # Skip menu, use tier 3 (16GB)
-#   .\setup.ps1 -Tier 4 -Coder      # Use qwen3-coder instead of qwen3.5
+#   .\setup.ps1 -Tier 4 -Alt        # Use alternate model for tier 4-5
 #
-# Model Tiers:
-#   1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM
-#   2  8GB VRAM   qwen3.5:9b            (~6.6GB)  RTX 3060 / 4060
-#   3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB
-#   4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090
-#                 or qwen3-coder:30b-a3b (~19GB, code-specialized MoE)
-#   5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)
-#                 or qwen3-coder:30b-a3b-q8_0 (~32GB, code-specialized MoE Q8)
+# Model Tiers (best coding models):
+#   1  CPU-only   gemma4:e4b             (~3GB)   Needs 8GB+ RAM
+#   2  8GB VRAM   qwen2.5-coder:7b       (~5GB)   RTX 3060 / 4060
+#   3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB
+#   4  24GB VRAM  qwen3.6:27b            (~17GB)  RTX 4090
+#                 or devstral             (~14GB)  with -Alt
+#   5  32GB VRAM  qwen3.6:27b-q8_0       (~30GB)  RTX 5090 / A6000 (SWE-bench king Q8)
+#                 or qwen3-coder:30b      (~19GB)  with -Alt (MoE, faster)
 ###############################################################################
 
 param(
     [switch]$Cpu,
-    [switch]$Coder,
+    [switch]$Alt,
     [switch]$Help,
-    [switch]$Docker,
-    [switch]$Native,
     [switch]$Uninstall,
     [string]$OllamaUrl = "",
     [ValidateRange(1,5)][int]$Tier = 0
@@ -42,40 +37,36 @@ $ErrorActionPreference = "Stop"
 
 # -- Banner -------------------------------------------------------------------
 Write-Host ""
-Write-Host "  +========================================================+" -ForegroundColor Cyan
-Write-Host "  |                                                        |" -ForegroundColor Cyan
-Write-Host "  |   The Librarian                                        |" -ForegroundColor Cyan
-Write-Host "  |   Keeper of the Ancient Code                           |" -ForegroundColor Cyan
-Write-Host "  |                                                        |" -ForegroundColor Cyan
-Write-Host "  |   A Shiba dev-sage from Shibatopia                     |" -ForegroundColor Cyan
-Write-Host "  |   Powered by OpenClaw + Ollama + Gemma4/Qwen3.5        |" -ForegroundColor Cyan
-Write-Host "  |                                                        |" -ForegroundColor Cyan
-Write-Host "  +========================================================+" -ForegroundColor Cyan
+Write-Host "  +========================================================+" -ForegroundColor Magenta
+Write-Host "  |                                                        |" -ForegroundColor Magenta
+Write-Host "  |   Agent Boshi                                          |" -ForegroundColor Magenta
+Write-Host "  |   Keeper of the Ancient Code                           |" -ForegroundColor Magenta
+Write-Host "  |                                                        |" -ForegroundColor Magenta
+Write-Host "  |   A Shiba dev-sage from Shibatopia                     |" -ForegroundColor Magenta
+Write-Host "  |   Powered by Hermes Agent + Ollama                     |" -ForegroundColor Magenta
+Write-Host "  |                                                        |" -ForegroundColor Magenta
+Write-Host "  +========================================================+" -ForegroundColor Magenta
 Write-Host ""
 
 if ($Help) {
-    Write-Host "Usage: .\setup.ps1 [-Docker|-Native] [-Cpu] [-Tier <1-5>] [-Coder] [-OllamaUrl <URL>] [-Uninstall]"
-    Write-Host ""
-    Write-Host "Install modes:"
-    Write-Host "  -Docker          Run everything in Docker containers (needs Docker Desktop)"
-    Write-Host "  -Native          Install directly on the host (recommended for VMs)"
+    Write-Host "Usage: .\setup.ps1 [-Cpu] [-Tier <1-5>] [-Alt] [-OllamaUrl <URL>] [-Uninstall]"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -Cpu             Run without GPU (CPU-only inference, uses qwen3.5:4b)"
+    Write-Host "  -Cpu             Run without GPU (CPU-only inference, uses gemma4:e4b)"
     Write-Host "  -Tier <N>        Skip the interactive menu and use tier N directly"
-    Write-Host "  -Coder           Use qwen3-coder (code-specialized) instead of gemma4 for tiers 4-5"
+    Write-Host "  -Alt             Use alternate model for tiers 4-5"
     Write-Host "  -OllamaUrl <URL> Use a remote Ollama server (e.g. http://192.168.1.100:11434)"
     Write-Host "                   Skips local Ollama install. Model must be pulled on the remote."
-    Write-Host "  -Uninstall       Remove The Librarian (Docker containers/volumes or native install)"
+    Write-Host "  -Uninstall       Remove Agent Boshi"
     Write-Host ""
-    Write-Host "Tiers:"
-    Write-Host "  1  CPU-only   qwen3.5:4b            (~3.4GB)  Needs 8GB+ RAM"
-    Write-Host "  2  8GB VRAM   qwen3.5:9b            (~6.6GB)  RTX 3060 / 4060"
-    Write-Host "  3  16GB VRAM  gemma4:26b (MoE)      (~18GB)   RTX 4080 / 4070Ti-16GB"
-    Write-Host "  4  24GB VRAM  gemma4:31b            (~20GB)   RTX 4090"
-    Write-Host "              or qwen3-coder:30b-a3b   (~19GB)   with -Coder"
-    Write-Host "  5  32GB VRAM  gemma4:31b-it-q8_0    (~34GB)   RTX 5090 / A6000 (Q8)"
-    Write-Host "              or qwen3-coder:30b-a3b-q8_0 (~32GB) with -Coder (Q8)"
+    Write-Host "Tiers (best coding models):"
+    Write-Host "  1  CPU-only   gemma4:e4b             (~3GB)   Needs 8GB+ RAM"
+    Write-Host "  2  8GB VRAM   qwen2.5-coder:7b       (~5GB)   RTX 3060 / 4060"
+    Write-Host "  3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB"
+    Write-Host "  4  24GB VRAM  qwen3.6:27b            (~17GB)  RTX 4090 (SWE-bench king)"
+    Write-Host "              or devstral              (~14GB)  with -Alt"
+    Write-Host "  5  32GB VRAM  qwen3.6:27b-q8_0      (~30GB)  RTX 5090 / A6000 (SWE-bench king Q8)"
+    Write-Host "              or qwen2.5-coder:32b     (~22GB)  with -Alt"
     exit 0
 }
 
@@ -131,7 +122,7 @@ function Get-SuggestedTier([int]$VramMB) {
 }
 
 # -- Disk space check ---------------------------------------------------------
-$ModelDiskGB = @{ 1 = 5; 2 = 8; 3 = 20; 4 = 22; 5 = 36 }
+$ModelDiskGB = @{ 1 = 5; 2 = 7; 3 = 16; 4 = 20; 5 = 35 }
 
 function Test-DiskSpace([int]$NeededGB) {
     try {
@@ -154,7 +145,6 @@ function Test-PortFree([int]$Port, [string]$Name) {
         $listener = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         if ($listener) {
             Write-Warn "Port $Port is already in use ($Name)."
-            Write-Warn "Another service may be running. The install may fail or conflict."
             $choice = Read-Host "  Continue anyway? [y/N]"
             if ($choice -ne "y" -and $choice -ne "Y") {
                 Write-Host "  Aborting."
@@ -167,41 +157,23 @@ function Test-PortFree([int]$Port, [string]$Name) {
 # -- Uninstall ----------------------------------------------------------------
 if ($Uninstall) {
     Write-Host ""
-    Write-Host "  Uninstall The Librarian" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    1)  Docker - Remove containers, images, and volumes" -ForegroundColor Cyan
-    Write-Host "    2)  Native - Remove config, stop services" -ForegroundColor Cyan
-    Write-Host "    3)  Both" -ForegroundColor Cyan
+    Write-Host "  Uninstall Agent Boshi" -ForegroundColor White
     Write-Host ""
 
-    do {
-        $unChoice = Read-Host "  What to uninstall? [1/2/3]"
-    } while ($unChoice -ne "1" -and $unChoice -ne "2" -and $unChoice -ne "3")
+    Write-Info "Stopping Hermes services..."
+    try { Stop-Process -Name hermes -Force -ErrorAction SilentlyContinue } catch {}
 
-    if ($unChoice -eq "1" -or $unChoice -eq "3") {
-        Write-Info "Removing Docker containers and volumes..."
-        Set-Location $scriptDir
-        try { & docker compose down -v 2>$null } catch {}
-        try { & docker rmi openclaw-sandbox:bookworm-slim 2>$null } catch {}
-        Write-Ok "Docker containers, volumes, and sandbox image removed."
-    }
-
-    if ($unChoice -eq "2" -or $unChoice -eq "3") {
-        Write-Info "Stopping native services..."
-        try { Stop-Process -Name openclaw -Force -ErrorAction SilentlyContinue } catch {}
-
-        $openclawDir = Join-Path $env:USERPROFILE ".openclaw"
-        if (Test-Path $openclawDir) {
-            $rmChoice = Read-Host "  Remove $openclawDir config directory? [y/N]"
-            if ($rmChoice -eq "y" -or $rmChoice -eq "Y") {
-                Remove-Item -Recurse -Force $openclawDir
-                Write-Ok "Removed $openclawDir"
-            } else {
-                Write-Info "Kept $openclawDir"
-            }
+    $hermesDir = Join-Path $env:USERPROFILE ".hermes"
+    if (Test-Path $hermesDir) {
+        $rmChoice = Read-Host "  Remove $hermesDir config directory? [y/N]"
+        if ($rmChoice -eq "y" -or $rmChoice -eq "Y") {
+            Remove-Item -Recurse -Force $hermesDir
+            Write-Ok "Removed $hermesDir"
+        } else {
+            Write-Info "Kept $hermesDir"
         }
-        Write-Ok "Native services stopped."
     }
+    Write-Ok "Hermes services stopped."
 
     Write-Host ""
     Write-Host "  Note: Ollama and downloaded models are not removed."
@@ -219,7 +191,6 @@ if (-not $gitCmd) {
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
     if ($wingetCmd) {
         winget install Git.Git --accept-package-agreements --accept-source-agreements
-        # Refresh PATH
         $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     }
     $gitCmd = Get-Command git -ErrorAction SilentlyContinue
@@ -234,81 +205,48 @@ if (-not $gitCmd) {
 
 # -- Model tier definitions ---------------------------------------------------
 $TierModels = @{
-    1 = "qwen3.5:4b"
-    2 = "qwen3.5:9b"
-    3 = "gemma4:26b"
-    4 = "gemma4:31b"
-    5 = "gemma4:31b-it-q8_0"
+    1 = "gemma4:e4b"
+    2 = "qwen2.5-coder:7b"
+    3 = "devstral"
+    4 = "qwen3.6:27b"
+    5 = "qwen3.6:27b-q8_0"
 }
 
 $TierSizes = @{
-    1 = "~3.4GB"
-    2 = "~6.6GB"
-    3 = "~18GB"
-    4 = "~20GB"
-    5 = "~34GB"
+    1 = "~3GB"
+    2 = "~5GB"
+    3 = "~14GB"
+    4 = "~17GB"
+    5 = "~30GB"
 }
 
 $TierLabels = @{
-    1 = "CPU-only    (qwen3.5:4b)             - Lightweight, needs 8GB+ RAM"
-    2 = "8GB VRAM    (qwen3.5:9b)             - RTX 3060 / 4060"
-    3 = "16GB VRAM   (gemma4:26b MoE)          - RTX 4080 / 4070Ti-16GB"
-    4 = "24GB VRAM   (gemma4:31b)              - RTX 4090"
-    5 = "32GB VRAM   (gemma4:31b-it-q8_0)      - RTX 5090 / A6000 (best)"
+    1 = "CPU-only    (gemma4:e4b)               - Multimodal 4B, needs 8GB+ RAM"
+    2 = "8GB VRAM    (qwen2.5-coder:7b)          - Best coder at this size"
+    3 = "16GB VRAM   (devstral 24B)               - Agentic coder, multi-file edits"
+    4 = "24GB VRAM   (qwen3.6:27b)                - SWE-bench 77.2%, coding king"
+    5 = "32GB VRAM   (qwen3.6:27b-q8_0)             - SWE-bench king at Q8 quality"
 }
 
 $TierNotes = @{
-    1 = "4B params - lightweight model for CPU inference. Needs 8GB+ system RAM."
-    2 = "9B params, Q4_K_M quantization - fits comfortably in 8GB VRAM."
-    3 = "Google Gemma 4 26B MoE (3.8B active), Q4_K_M - code & reasoning optimized, 256K context."
-    4 = "Google Gemma 4 31B dense, Q4_K_M - best quality model for 24GB VRAM, 256K context."
-    5 = "Google Gemma 4 31B dense, Q8_0 - max quality for 48GB+ VRAM."
+    1 = "Google Gemma 4 E4B - efficient edge model, multimodal, function calling, 128K context."
+    2 = "Qwen2.5-Coder 7B - HumanEval leader in 7-8B class, stable and well-tested."
+    3 = "Devstral 24B by Mistral + All Hands AI - purpose-built for agentic coding."
+    4 = "Qwen3.6 27B dense - THE coding king. SWE-bench 77.2%, matches Claude 4.5 Opus."
+    5 = "Qwen3.6 27B dense at Q8 - SWE-bench 77.2%, near-FP16 precision, 262K context."
 }
 
-# Coder model alternatives for tiers 4-5
-$CoderModels = @{
-    4 = "qwen3-coder:30b-a3b"
-    5 = "qwen3-coder:30b-a3b-q8_0"
+$AltModels = @{
+    4 = "devstral"
+    5 = "qwen3-coder:30b"
 }
 
-$CoderSizes = @{
-    4 = "~19GB"
-    5 = "~32GB"
-}
-
-$CoderNotes = @{
-    4 = "30B MoE (3.3B active), Q4_K_M - code-specialized, fast inference, 256K context."
-    5 = "30B MoE (3.3B active), Q8_0 - max quality code-specialized agent."
+$AltSizes = @{
+    4 = "~14GB"
+    5 = "~19GB"
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-# -- Install mode selection ---------------------------------------------------
-$InstallMode = ""
-if ($Docker) { $InstallMode = "docker" }
-if ($Native) { $InstallMode = "native" }
-
-if ($InstallMode -eq "") {
-    Write-Host ""
-    Write-Host "  How would you like to install The Librarian?" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    1)  Docker - Run everything in containers" -ForegroundColor Cyan
-    Write-Host "        Easy to install and remove. Requires Docker Desktop."
-    Write-Host ""
-    Write-Host "    2)  Native - Install directly on this machine" -ForegroundColor Cyan
-    Write-Host "        Better GPU performance, no Docker needed."
-    Write-Host "        Recommended: run this inside a VM for easy cleanup." -ForegroundColor Yellow
-    Write-Host ""
-
-    do {
-        $modeInput = Read-Host "  Enter choice [1/2]"
-    } while ($modeInput -ne "1" -and $modeInput -ne "2")
-
-    if ($modeInput -eq "1") { $InstallMode = "docker" } else { $InstallMode = "native" }
-    Write-Host ""
-}
-
-Write-Info "Install mode: $InstallMode"
 
 # -- Ollama location ----------------------------------------------------------
 if ($OllamaUrl -eq "") {
@@ -317,7 +255,7 @@ if ($OllamaUrl -eq "") {
     Write-Host ""
     Write-Host "    1)  Local - Install and run Ollama on this machine (default)" -ForegroundColor Cyan
     Write-Host "    2)  Remote - Connect to Ollama running on another machine" -ForegroundColor Cyan
-    Write-Host "        (e.g. a GPU server on your network, or the host machine)" -ForegroundColor Yellow
+    Write-Host "        (e.g. a GPU server on your network)" -ForegroundColor Yellow
     Write-Host ""
 
     do {
@@ -343,7 +281,6 @@ if ($OllamaUrl -ne "") {
     $OllamaUrl = $OllamaUrl.TrimEnd('/')
     Write-Info "Using remote Ollama server: $OllamaUrl"
 
-    # Verify remote is reachable
     Write-Info "Checking connectivity to $OllamaUrl..."
     try {
         $resp = Invoke-WebRequest -Uri "$OllamaUrl/api/tags" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
@@ -370,7 +307,6 @@ if ($Cpu -and $Tier -gt 0 -and $Tier -ne 1) {
 if ($Cpu) { $Tier = 1 }
 
 if ($Tier -eq 0) {
-    # Auto-detect VRAM
     $detectedVram = Get-GpuVramMB
     $suggestedTier = 0
     if ($detectedVram -gt 0) {
@@ -406,35 +342,34 @@ if ($Tier -eq 0) {
 }
 
 # -- Model variant selection (tiers 4-5) --------------------------------------
-$UseCoder = $Coder
+$UseAlt = $Alt
 
-if ($Tier -ge 4 -and -not $Coder) {
+if ($Tier -ge 4 -and -not $Alt) {
     Write-Host ""
     Write-Host "  Choose your model variant for tier $Tier`:" -ForegroundColor White
     Write-Host ""
-    Write-Host "    a)  gemma4   - Google Gemma 4, best code & reasoning, multimodal, 256K context" -ForegroundColor Cyan
-    Write-Host "        $($TierModels[$Tier]) ($($TierSizes[$Tier]) download)"
+    Write-Host "    a)  $($TierModels[$Tier]) - $($TierNotes[$Tier])" -ForegroundColor Cyan
+    Write-Host "        $($TierSizes[$Tier]) download"
     Write-Host ""
-    Write-Host "    b)  qwen3-coder - Code-specialized MoE (3.3B active params, very fast)" -ForegroundColor Cyan
-    Write-Host "        $($CoderModels[$Tier]) ($($CoderSizes[$Tier]) download)"
+    Write-Host "    b)  $($AltModels[$Tier]) - alternate option" -ForegroundColor Cyan
+    Write-Host "        $($AltSizes[$Tier]) download"
     Write-Host ""
 
     do {
-        $variant = Read-Host "  Enter variant [a/b]"
+        $variant = Read-Host "  Enter variant [a/b] (default: a)"
+        if ($variant -eq "") { $variant = "a" }
     } while ($variant -ne "a" -and $variant -ne "A" -and $variant -ne "b" -and $variant -ne "B")
 
-    if ($variant -eq "b" -or $variant -eq "B") { $UseCoder = $true }
+    if ($variant -eq "b" -or $variant -eq "B") { $UseAlt = $true }
     Write-Host ""
 }
 
-if ($UseCoder -and $Tier -ge 4) {
-    $Model = $CoderModels[$Tier]
-    $ModelSize = $CoderSizes[$Tier]
-    $ModelNote = $CoderNotes[$Tier]
+if ($UseAlt -and $Tier -ge 4) {
+    $Model = $AltModels[$Tier]
+    $ModelSize = $AltSizes[$Tier]
 } else {
     $Model = $TierModels[$Tier]
     $ModelSize = $TierSizes[$Tier]
-    $ModelNote = $TierNotes[$Tier]
 }
 
 $CpuOnly = ($Tier -eq 1)
@@ -443,252 +378,34 @@ Write-Info "Selected: $($TierLabels[$Tier])"
 Write-Info "Model: $Model ($ModelSize download)"
 Write-Host ""
 
-###############################################################################
-#                           DOCKER INSTALL PATH                               #
-###############################################################################
-if ($InstallMode -eq "docker") {
+# -- Pre-flight checks -------------------------------------------------------
+if (-not $RemoteOllama) {
+    Test-PortFree 11434 "Ollama"
+    Test-DiskSpace $ModelDiskGB[$Tier]
+}
+Test-PortFree 9119 "Hermes Dashboard"
 
-    # -- Check / Install Docker ------------------------------------------------
-    Write-Info "Checking for Docker..."
-
-    $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
-    if (-not $dockerCmd) {
-        Write-Warn "Docker is not installed."
-        Write-Host ""
-
-        # Try winget first, fall back to manual instructions
-        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-        if ($wingetCmd) {
-            Write-Host "  Install Docker Desktop now via winget?" -ForegroundColor White
-            $installChoice = Read-Host "  Install Docker? [Y/n]"
-            if ($installChoice -eq "" -or $installChoice -eq "Y" -or $installChoice -eq "y") {
-                Write-Info "Installing Docker Desktop via winget..."
-                winget install Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
-                Write-Host ""
-                Write-Warn "Docker Desktop installed. Please open it from the Start menu to start the daemon,"
-                Write-Warn "then re-run this script."
-                exit 0
-            }
-        }
-
-        Write-Err "Docker is not installed."
-        Write-Host ""
-        Write-Host "  Install Docker Desktop from:"
-        Write-Host "    https://www.docker.com/products/docker-desktop/" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  After installing and starting it, re-run this script."
-        exit 1
-    }
-
-    try {
-        docker info 2>$null | Out-Null
-    } catch {
-        Write-Err "Docker is not running. Please start Docker Desktop and try again."
-        exit 1
-    }
-    Write-Ok "Docker is running."
-
-    # -- Check Docker Compose -------------------------------------------------
-    try {
-        docker compose version 2>$null | Out-Null
-    } catch {
-        Write-Err "Docker Compose V2 not found. Please update Docker Desktop."
-        exit 1
-    }
-    Write-Ok "Docker Compose available."
-
-    # -- GPU Check ------------------------------------------------------------
-    $composeFiles = @("-f", "docker-compose.yml")
-
-    if ($CpuOnly -or $Cpu) {
-        Write-Warn "CPU-only mode. Inference will be slower but functional."
-        $composeFiles += @("-f", "docker-compose.cpu.yml")
-    } else {
-        $hasGpu = $false
-        try {
-            $nvsmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
-            if ($nvsmi) {
-                nvidia-smi 2>$null | Out-Null
-                if ($LASTEXITCODE -eq 0) { $hasGpu = $true }
-            }
-        } catch {}
-
-        if ($hasGpu) {
-            Write-Ok "NVIDIA GPU detected."
-        } else {
-            Write-Warn "No NVIDIA GPU detected. Using CPU-only mode."
-            $composeFiles += @("-f", "docker-compose.cpu.yml")
-        }
-    }
-
-    # -- Pre-flight checks ---------------------------------------------------
-    if (-not $RemoteOllama) {
-        Test-PortFree 11434 "Ollama"
-        Test-DiskSpace $ModelDiskGB[$Tier]
-    }
-    Test-PortFree 18789 "OpenClaw Gateway"
-
-    # Confirmation
-    Write-Host ""
-    Write-Host "  Ready to install:" -ForegroundColor White
-    Write-Host "    Mode:      Docker"
-    Write-Host "    Model:     $Model ($ModelSize)"
-    Write-Host "    Ollama:    $OllamaUrl"
-    if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
-    if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
-    Write-Host ""
-    $proceed = Read-Host "  Proceed? [Y/n]"
-    if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
-    Write-Host ""
-
-    # -- Start Services -------------------------------------------------------
-    Set-Location $scriptDir
-
-    if ($RemoteOllama) {
-        # Remote Ollama: only start the gateway
-        Write-Info "Pulling OpenClaw Gateway image..."
-        & docker compose @composeFiles pull openclaw-gateway
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull image."; exit 1 }
-
-        Write-Info "Starting OpenClaw Gateway (Ollama on $OllamaUrl)..."
-        $env:OLLAMA_BASE_URL = $OllamaUrl
-        $env:LIBRARIAN_MODEL = $Model
-        & docker compose @composeFiles up -d openclaw-gateway
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start gateway."; exit 1 }
-
-        Write-Warn "Skipping local Ollama - using remote server at $OllamaUrl"
-        Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
-    } else {
-        # Local Ollama: start everything
-        Write-Info "Pulling Docker images (first run may take a few minutes)..."
-        & docker compose @composeFiles pull
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull images."; exit 1 }
-
-        Write-Info "Starting Ollama + OpenClaw Gateway..."
-        & docker compose @composeFiles up -d ollama openclaw-gateway
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to start services."; exit 1 }
-
-        # Wait for Ollama
-        Write-Info "Waiting for Ollama to initialize..."
-        if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
-            Write-Err "Ollama failed to start after 60 seconds."
-            Write-Host "  Check logs: docker compose logs ollama"
-            exit 1
-        }
-        Write-Ok "Ollama is ready."
-
-        # Pull model
-        Write-Info "Pulling $Model ($ModelSize download, one-time operation)..."
-        Write-Host "  $ModelNote"
-        Write-Host ""
-        & docker exec librarian-ollama ollama pull $Model
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
-        Write-Ok "Model downloaded and ready."
-    }
-
-    # -- Update config with selected model ------------------------------------
-    Write-Info "Configuring OpenClaw to use $Model..."
-    $configPath = Join-Path $scriptDir "openclaw" "config.json5"
-    if (Test-Path $configPath) {
-        $content = Get-Content $configPath -Raw
-        $content = $content -replace 'name: "[^"]*"', "name: `"$Model`""
-        $content = $content -replace 'baseUrl: "[^"]*"', "baseUrl: `"$OllamaUrl`""
-        Set-Content -Path $configPath -Value $content -NoNewline
-        Write-Ok "Config updated: model=$Model, ollama=$OllamaUrl"
-    } else {
-        Write-Warn "Config file not found - you may need to set the model manually."
-    }
-
-    # -- Build Sandbox Image --------------------------------------------------
-    Write-Info "Building sandbox image for agent isolation..."
-    $sandboxExists = docker image inspect openclaw-sandbox:bookworm-slim 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Ok "Sandbox image already exists."
-    } else {
-        $dockerfile = @"
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends curl jq git ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN useradd -m -s /bin/bash sandbox
-USER sandbox
-WORKDIR /home/sandbox
-"@
-        $dockerfile | docker build -t openclaw-sandbox:bookworm-slim -f - .
-        if ($LASTEXITCODE -ne 0) { Write-Err "Failed to build sandbox image."; exit 1 }
-        Write-Ok "Sandbox image built."
-    }
-
-    # Wait for OpenClaw Gateway
-    Write-Info "Waiting for OpenClaw Gateway to start..."
-    if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
-        Write-Err "OpenClaw Gateway failed to start after 60 seconds."
-        Write-Host "  Check logs: docker compose logs openclaw-gateway"
-        exit 1
-    }
-    Write-Ok "OpenClaw Gateway is running."
-
-    # -- Done (Docker) --------------------------------------------------------
-    Write-Host ""
-    Write-Host "  ========================================================" -ForegroundColor Green
-    Write-Host "    The Librarian is ready!  (Docker mode)" -ForegroundColor Green
-    Write-Host "  ========================================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Model:  $Model ($($TierLabels[$Tier]))"
-    Write-Host ""
-    Write-Host "  Open in your browser:"
-    Write-Host "    http://localhost:18789" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Useful commands:"
-    Write-Host "    docker compose logs -f openclaw-gateway   # Watch OpenClaw logs"
-    Write-Host "    docker compose logs -f ollama             # Watch Ollama logs"
-    Write-Host "    docker compose down                       # Stop everything"
-    Write-Host "    docker compose up -d                      # Restart"
-    Write-Host ""
-    Write-Host "  Change model tier:" -ForegroundColor Yellow
-    Write-Host "    docker exec librarian-ollama ollama pull <model>"
-    Write-Host "    Then update 'model.name' in openclaw/config.json5"
-    Write-Host ""
-    Write-Host "  Sandboxing:" -ForegroundColor Yellow
-    Write-Host "    Agent tool execution runs inside isolated Docker containers."
-    Write-Host "    Sandbox containers have no network access by default."
-    Write-Host "    Edit openclaw/config.json5 to adjust sandbox settings."
-    Write-Host ""
-    Write-Host "  The Librarian guards the Ancient Lore. May your code be" -ForegroundColor Yellow
-    Write-Host "  free of Shadowcats." -ForegroundColor Yellow
-    Write-Host ""
-
-} # end Docker path
+# Confirmation
+Write-Host ""
+Write-Host "  Ready to install:" -ForegroundColor White
+Write-Host "    Model:     $Model ($ModelSize)"
+Write-Host "    Ollama:    $OllamaUrl"
+if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
+if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
+Write-Host ""
+$proceed = Read-Host "  Proceed? [Y/n]"
+if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
+Write-Host ""
 
 ###############################################################################
-#                           NATIVE INSTALL PATH                               #
+#                              INSTALL                                         #
 ###############################################################################
-if ($InstallMode -eq "native") {
 
-    # -- Pre-flight checks ---------------------------------------------------
-    if (-not $RemoteOllama) {
-        Test-PortFree 11434 "Ollama"
-        Test-DiskSpace $ModelDiskGB[$Tier]
-    }
-    Test-PortFree 18789 "OpenClaw Gateway"
-
-    # Confirmation
+if ($RemoteOllama) {
+    Write-Info "Using remote Ollama at $OllamaUrl"
+    Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
     Write-Host ""
-    Write-Host "  Ready to install:" -ForegroundColor White
-    Write-Host "    Mode:      Native (host install)"
-    Write-Host "    Model:     $Model ($ModelSize)"
-    Write-Host "    Ollama:    $OllamaUrl"
-    if ($RemoteOllama) { Write-Host "               (remote - model must be pulled on the server)" -ForegroundColor Yellow }
-    if ($CpuOnly) { Write-Host "    GPU:       CPU-only" }
-    Write-Host ""
-    $proceed = Read-Host "  Proceed? [Y/n]"
-    if ($proceed -eq "n" -or $proceed -eq "N") { Write-Host "  Aborting."; exit 0 }
-    Write-Host ""
-
-    if ($RemoteOllama) {
-        # -- Remote Ollama - skip install, start, pull -------------------------
-        Write-Info "Using remote Ollama at $OllamaUrl"
-        Write-Warn "Make sure '$Model' is pulled on the remote: ollama pull $Model"
-        Write-Host ""
-    } else {
+} else {
     # -- Install Ollama -------------------------------------------------------
     Write-Info "Checking for Ollama..."
     $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
@@ -696,13 +413,11 @@ if ($InstallMode -eq "native") {
         Write-Ok "Ollama is already installed."
     } else {
         Write-Info "Installing Ollama..."
-        # Download and run the Windows installer
         $ollamaInstaller = Join-Path $env:TEMP "OllamaSetup.exe"
         Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $ollamaInstaller
         Start-Process -FilePath $ollamaInstaller -Args "/SILENT" -Wait
         Remove-Item $ollamaInstaller -ErrorAction SilentlyContinue
 
-        # Refresh PATH
         $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
         $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
@@ -724,7 +439,6 @@ if ($InstallMode -eq "native") {
     if ($ollamaRunning) {
         Write-Ok "Ollama is already running."
     } else {
-        # Start Ollama in background
         Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
         Write-Info "Waiting for Ollama..."
         if (-not (Wait-ForUrl "http://localhost:11434/api/tags" 30 "Ollama")) {
@@ -737,175 +451,202 @@ if ($InstallMode -eq "native") {
 
     # -- Pull model -----------------------------------------------------------
     Write-Info "Pulling $Model ($ModelSize download, one-time operation)..."
-    Write-Host "  $ModelNote"
+    Write-Host "  $($TierNotes[$Tier])"
     Write-Host ""
     & ollama pull $Model
     if ($LASTEXITCODE -ne 0) { Write-Err "Failed to pull model."; exit 1 }
     Write-Ok "Model downloaded and ready."
-    } # end local Ollama block
+}
 
-    # -- Install Node.js (if needed) ------------------------------------------
-    Write-Info "Checking for Node.js..."
-    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-    if ($nodeCmd) {
-        Write-Ok "Node.js $(node --version) is installed."
-    } else {
-        Write-Info "Installing Node.js via winget..."
+# -- Install Hermes Agent -----------------------------------------------------
+Write-Info "Checking for Hermes Agent..."
+$hermesDir = Join-Path $env:USERPROFILE ".hermes"
+$hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+
+if ($hermesCmd) {
+    Write-Ok "Hermes Agent is already installed."
+} else {
+    Write-Info "Installing Hermes Agent..."
+
+    # Check for Python
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonCmd) {
+        $pythonCmd = Get-Command python3 -ErrorAction SilentlyContinue
+    }
+    if (-not $pythonCmd) {
+        Write-Info "Python not found. Installing via winget..."
         try {
-            winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-            # Refresh PATH
+            winget install Python.Python.3.11 --accept-package-agreements --accept-source-agreements
             $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
         } catch {
-            Write-Err "Could not auto-install Node.js. Please install Node.js 18+ from https://nodejs.org"
+            Write-Err "Could not install Python. Please install Python 3.11+ from https://python.org and re-run."
             exit 1
         }
-        $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-        if (-not $nodeCmd) {
-            Write-Err "Node.js installation failed. Please install from https://nodejs.org and re-run."
+    }
+    Write-Ok "Python is available."
+
+    # Use the official Windows installer
+    $installScript = Join-Path $env:TEMP "hermes-install.ps1"
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1" -OutFile $installScript
+    & powershell -ExecutionPolicy Bypass -File $installScript -SkipSetup -SkipBrowser
+
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+    $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
+    if (-not $hermesCmd) {
+        # Check common install locations
+        $venvPath = Join-Path $hermesDir "hermes-agent" ".venv" "Scripts"
+        if (Test-Path (Join-Path $venvPath "hermes.exe")) {
+            $env:PATH = "$venvPath;$env:PATH"
+        } else {
+            Write-Err "Hermes Agent installation failed or hermes is not on PATH."
+            Write-Host "  Check: $hermesDir\hermes-agent\.venv\Scripts\"
             exit 1
         }
-        Write-Ok "Node.js installed ($(node --version))."
     }
-
-    # -- Install OpenClaw Gateway ---------------------------------------------
-    Write-Info "Installing OpenClaw Gateway..."
-    $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-    if ($openclawCmd) {
-        Write-Ok "OpenClaw Gateway is already installed."
-    } else {
-        & npm install -g openclaw@latest
-        if ($LASTEXITCODE -ne 0) {
-            Write-Err "OpenClaw Gateway installation failed."
-            Write-Host "  Try: npm install -g openclaw@latest"
-            exit 1
-        }
-        Write-Ok "OpenClaw Gateway installed."
-    }
-
-    # -- Deploy configuration -------------------------------------------------
-    $openclawDir = Join-Path $env:USERPROFILE ".openclaw"
-    Write-Info "Deploying configuration to $openclawDir..."
-    New-Item -ItemType Directory -Path $openclawDir -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $openclawDir "workspace") -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $openclawDir "skills") -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $openclawDir "agents" "main" "agent") -Force | Out-Null
-
-    # Copy personality and skills
-    Copy-Item "$scriptDir\openclaw\SOUL.md" "$openclawDir\SOUL.md" -Force
-    $skillsDir = "$scriptDir\openclaw\skills"
-    if (Test-Path $skillsDir) {
-        Copy-Item "$skillsDir\*" "$openclawDir\skills" -Recurse -Force
-    }
-
-    # Generate gateway auth token
-    $GatewayToken = -join ((1..24) | ForEach-Object { "{0:x2}" -f (Get-Random -Minimum 0 -Maximum 256) })
-
-    # Write openclaw.json (the real config file OpenClaw uses)
-    $openclawConfig = @"
-{
-  "gateway": {
-    "mode": "local",
-    "port": 18789,
-    "bind": "lan",
-    "auth": {
-      "mode": "token",
-      "token": "$GatewayToken"
-    }
-  },
-  "models": {
-    "ollamaDiscovery": {
-      "enabled": true
-    },
-    "providers": {
-      "ollama": {
-        "baseUrl": "$OllamaUrl",
-        "api": "ollama",
-        "models": []
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": "ollama/$Model",
-      "workspace": "~/.openclaw/workspace"
-    },
-    "list": [
-      {
-        "id": "main",
-        "default": true,
-        "name": "The Librarian",
-        "model": "ollama/$Model"
-      }
-    ]
-  }
+    Write-Ok "Hermes Agent installed."
 }
+
+# -- Deploy Agent Boshi configuration -----------------------------------------
+Write-Info "Deploying Agent Boshi configuration to $hermesDir..."
+New-Item -ItemType Directory -Path $hermesDir -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $hermesDir "skills") -Force | Out-Null
+
+# Copy personality
+Copy-Item "$scriptDir\hermes\SOUL.md" "$hermesDir\SOUL.md" -Force
+Write-Ok "Agent Boshi personality deployed."
+
+# Copy skills
+$skillsDir = "$scriptDir\hermes\skills"
+if (Test-Path $skillsDir) {
+    Copy-Item "$skillsDir\*" "$hermesDir\skills" -Recurse -Force
+}
+Write-Ok "Skills deployed (dev-review, dev-debug, self-improving-agent)."
+
+# -- Write Hermes config.yaml ------------------------------------------------
+$ollamaApiUrl = "$OllamaUrl/v1"
+
+$hermesConfig = @"
+# Agent Boshi - Hermes Agent Configuration
+# Configured for local Ollama backend
+
+model:
+  default: "$Model"
+  provider: "custom"
+  base_url: "$ollamaApiUrl"
+
+agent:
+  max_turns: 60
+  reasoning_effort: "medium"
+  verbose: false
+
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
+  lifetime_seconds: 300
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  nudge_interval: 10
+  flush_min_turns: 6
+
+skills:
+  creation_nudge_interval: 15
+
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+  protect_first_n: 3
+
+display:
+  compact: false
+  tool_progress: all
+  streaming: true
+  skin: default
+
+platform_toolsets:
+  cli: [hermes-cli]
 "@
-    Set-Content -Path (Join-Path $openclawDir "openclaw.json") -Value $openclawConfig -NoNewline
-    Write-Ok "Config deployed: model set to ollama/$Model"
+Set-Content -Path (Join-Path $hermesDir "config.yaml") -Value $hermesConfig -NoNewline
+Write-Ok "Config deployed: model=$Model, ollama=$OllamaUrl"
 
-    # -- Start OpenClaw Gateway -----------------------------------------------
-    Write-Info "Starting OpenClaw Gateway..."
-    $gatewayRunning = $false
-    try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:18789/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
-        if ($resp.StatusCode -eq 200) { $gatewayRunning = $true }
-    } catch {}
+# -- Write .env ---------------------------------------------------------------
+$envPath = Join-Path $hermesDir ".env"
+if (-not (Test-Path $envPath)) {
+    $envContent = @"
+# Agent Boshi - Environment Variables
+# No API keys needed for local Ollama
+# Add keys here if you want to use cloud providers as fallback
+"@
+    Set-Content -Path $envPath -Value $envContent -NoNewline
+}
 
-    if ($gatewayRunning) {
-        Write-Ok "OpenClaw Gateway is already running."
+# -- Start Hermes Dashboard ---------------------------------------------------
+Write-Info "Starting Hermes Dashboard..."
+$dashboardRunning = $false
+try {
+    $resp = Invoke-WebRequest -Uri "http://localhost:9119/" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
+    if ($resp.StatusCode -eq 200) { $dashboardRunning = $true }
+} catch {}
+
+if ($dashboardRunning) {
+    Write-Ok "Hermes Dashboard is already running."
+} else {
+    $logFile = Join-Path $hermesDir "dashboard.log"
+    Start-Process -FilePath "hermes" -ArgumentList "dashboard","--port","9119","--no-open" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
+
+    Write-Info "Waiting for Hermes Dashboard..."
+    if (-not (Wait-ForUrl "http://localhost:9119/" 30 "Dashboard")) {
+        Write-Warn "Dashboard may still be starting. Check: Get-Content $logFile -Tail 20"
     } else {
-        $logFile = Join-Path $openclawDir "gateway.log"
-        Start-Process -FilePath "openclaw" -ArgumentList "gateway","--port","18789" -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $logFile
-
-        Write-Info "Waiting for OpenClaw Gateway..."
-        if (-not (Wait-ForUrl "http://localhost:18789/healthz" 30 "Gateway")) {
-            Write-Err "OpenClaw Gateway failed to start after 60 seconds."
-            Write-Host "  Check logs: Get-Content $logFile"
-            exit 1
-        }
-        Write-Ok "OpenClaw Gateway is running."
+        Write-Ok "Hermes Dashboard is running."
     }
+}
 
-    # -- Done (Native) --------------------------------------------------------
-    Write-Host ""
-    Write-Host "  ========================================================" -ForegroundColor Green
-    Write-Host "    The Librarian is ready!  (native install)" -ForegroundColor Green
-    Write-Host "  ========================================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Model:  ollama/$Model ($($TierLabels[$Tier]))"
-    Write-Host ""
-    Write-Host "  Open in your browser:"
-    Write-Host "    http://localhost:18789" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Gateway Token (paste into UI or bookmark the URL below):" -ForegroundColor Yellow
-    Write-Host "    $GatewayToken" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Direct URL (no token prompt):"
-    Write-Host "    http://localhost:18789/chat?token=$GatewayToken" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Useful commands:"
-    Write-Host "    Get-Content ~\.openclaw\gateway.log -Tail 50   # Watch gateway logs"
-    Write-Host "    ollama ps                                       # Check running models"
-    Write-Host "    ollama stop $Model                              # Unload model from VRAM"
-    Write-Host ""
-    Write-Host "  Change model:" -ForegroundColor Yellow
-    Write-Host "    ollama pull <model>"
-    Write-Host "    Edit agents.defaults.model in ~\.openclaw\openclaw.json"
-    Write-Host ""
-    Write-Host "  Stop everything:" -ForegroundColor Yellow
-    Write-Host "    Stop-Process -Name openclaw                     # Stop gateway"
-    Write-Host "    ollama stop $Model                              # Unload model"
-    Write-Host ""
-    Write-Host "  Config: $openclawDir\openclaw.json"
-    Write-Host ""
-    Write-Host "  NOTE: Native mode does not include Docker sandboxing." -ForegroundColor Yellow
-    Write-Host "  For isolation, run this setup inside a VM." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  The Librarian guards the Ancient Lore. May your code be" -ForegroundColor Yellow
-    Write-Host "  free of Shadowcats." -ForegroundColor Yellow
-    Write-Host ""
-
-} # end Native path
+# -- Done ---------------------------------------------------------------------
+Write-Host ""
+Write-Host "  ========================================================" -ForegroundColor Green
+Write-Host "    Agent Boshi is ready!" -ForegroundColor Green
+Write-Host "  ========================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Model:  $Model ($($TierLabels[$Tier]))"
+Write-Host ""
+Write-Host "  Open in your browser:"
+Write-Host "    http://localhost:9119" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Or use the CLI:"
+Write-Host "    hermes                                  # Start interactive chat" -ForegroundColor Cyan
+Write-Host "    hermes chat -q `"Hello Agent Boshi!`"     # Single query" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Useful commands:"
+Write-Host "    hermes                                  # Interactive chat"
+Write-Host "    hermes model                            # Change model"
+Write-Host "    hermes setup                            # Re-run setup wizard"
+Write-Host "    hermes doctor                           # Check configuration"
+Write-Host "    hermes dashboard                        # Start web dashboard"
+Write-Host "    ollama ps                               # Check running models"
+Write-Host ""
+Write-Host "  Change model:" -ForegroundColor Yellow
+Write-Host "    ollama pull <model>"
+Write-Host "    hermes config set model.default <model>"
+Write-Host ""
+Write-Host "  Stop everything:" -ForegroundColor Yellow
+Write-Host "    Stop-Process -Name hermes               # Stop dashboard"
+Write-Host "    ollama stop $Model                      # Unload model"
+Write-Host ""
+Write-Host "  Config: $hermesDir\config.yaml"
+Write-Host "  Personality: $hermesDir\SOUL.md"
+Write-Host "  Skills: $hermesDir\skills\"
+Write-Host ""
+Write-Host "  Agent Boshi guards the Ancient Lore. May your code be" -ForegroundColor Yellow
+Write-Host "  free of Shadowcats." -ForegroundColor Yellow
+Write-Host ""
 
 # Open browser
-Start-Process "http://localhost:18789"
+Start-Process "http://localhost:9119"

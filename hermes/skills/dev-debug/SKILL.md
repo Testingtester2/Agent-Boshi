@@ -1,3 +1,16 @@
+---
+name: dev-debug
+description: "Systematic debugging — hunt down and eliminate Shadowcats (bugs)."
+version: 1.0.0
+author: Agent Boshi
+license: MIT
+platforms: [linux, macos, windows]
+metadata:
+  hermes:
+    tags: [debugging, bugs, troubleshooting, root-cause]
+    related_skills: [dev-review, self-improving-agent]
+---
+
 # Debug Skill
 
 ## Description
