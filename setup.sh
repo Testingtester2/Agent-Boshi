@@ -22,8 +22,8 @@
 #   3) 16GB VRAM — devstral               (~14GB download)   [RTX 4080/4070Ti-16GB]
 #   4) 24GB VRAM — qwen3.6:27b            (~17GB download)   [RTX 4090]
 #                  or devstral             (~14GB, agentic code-specialized)
-#   5) 32GB VRAM — qwen3-coder:30b         (~19GB download)   [RTX 5090/A6000]
-#                  or qwen2.5-coder:32b    (~22GB, battle-tested)
+#   5) 32GB VRAM — qwen3.6:27b-q8_0       (~30GB download)   [RTX 5090/A6000]
+#                  or qwen3-coder:30b      (~19GB, MoE faster inference)
 ###############################################################################
 
 set -euo pipefail
@@ -105,7 +105,7 @@ suggest_tier() {
 # ── Disk space check ──────────────────────────────────────────
 model_disk_gb() {
   case "$1" in
-    1) echo 5 ;;  2) echo 7 ;;  3) echo 16 ;;  4) echo 20 ;;  5) echo 24 ;;
+    1) echo 5 ;;  2) echo 7 ;;  3) echo 16 ;;  4) echo 20 ;;  5) echo 35 ;;
   esac
 }
 
@@ -201,8 +201,8 @@ for arg in "$@"; do
       echo "  3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB"
       echo "  4  24GB VRAM  qwen3.6:27b             (~17GB)  RTX 4090 (SWE-bench king)"
       echo "              or devstral                (~14GB)  with --alt (agentic)"
-      echo "  5  32GB VRAM  qwen3-coder:30b (MoE)     (~19GB)  RTX 5090 / A6000"
-      echo "              or qwen2.5-coder:32b       (~22GB)  with --alt (battle-tested)"
+      echo "  5  32GB VRAM  qwen3.6:27b-q8_0          (~30GB)  RTX 5090 / A6000 (SWE-bench king Q8)"
+      echo "              or qwen3-coder:30b         (~19GB)  with --alt (MoE, faster inference)"
       exit 0
       ;;
   esac
@@ -306,7 +306,7 @@ tier_model()   {
     2) echo "qwen2.5-coder:7b" ;;
     3) echo "devstral" ;;
     4) echo "qwen3.6:27b" ;;
-    5) echo "qwen3-coder:30b" ;;
+    5) echo "qwen3.6:27b-q8_0" ;;
   esac
 }
 
@@ -316,7 +316,7 @@ tier_size()    {
     2) echo "~5GB" ;;
     3) echo "~14GB" ;;
     4) echo "~17GB" ;;
-    5) echo "~19GB" ;;
+    5) echo "~30GB" ;;
   esac
 }
 
@@ -326,7 +326,7 @@ tier_label()   {
     2) echo "8GB VRAM    (qwen2.5-coder:7b)          — Best coder at this size, HumanEval leader" ;;
     3) echo "16GB VRAM   (devstral 24B)               — Agentic coder, multi-file edits, 128K ctx" ;;
     4) echo "24GB VRAM   (qwen3.6:27b)                — SWE-bench 77.2%, matches Claude 4.5 Opus" ;;
-    5) echo "32GB VRAM   (qwen3-coder:30b MoE)          — Code-specialized, 3.3B active, 256K ctx" ;;
+    5) echo "32GB VRAM   (qwen3.6:27b-q8_0)             — SWE-bench king at Q8 quality, 262K ctx" ;;
   esac
 }
 
@@ -334,14 +334,14 @@ tier_label()   {
 alt_model()  {
   case "$1" in
     4) echo "devstral" ;;
-    5) echo "qwen2.5-coder:32b" ;;
+    5) echo "qwen3-coder:30b" ;;
   esac
 }
 
 alt_size()   {
   case "$1" in
     4) echo "~14GB" ;;
-    5) echo "~22GB" ;;
+    5) echo "~19GB" ;;
   esac
 }
 
@@ -349,7 +349,7 @@ model_note()   {
   if [ "$USE_ALT" = "true" ] && [ "$TIER" -ge 4 ]; then
     case "$TIER" in
       4) echo "Devstral 24B — purpose-built agentic coder by Mistral. Multi-file edits, debugging, 128K context." ;;
-      5) echo "Qwen2.5-Coder 32B — 92.7% HumanEval, most battle-tested coding model, very mature." ;;
+      5) echo "Qwen3-Coder 30B MoE (3.3B active) — code-specialized, faster inference, 256K context." ;;
     esac
   else
     case "$TIER" in
@@ -357,7 +357,7 @@ model_note()   {
       2) echo "Qwen2.5-Coder 7B — HumanEval leader in 7-8B class, stable and well-tested." ;;
       3) echo "Devstral 24B by Mistral + All Hands AI — purpose-built for agentic coding workflows." ;;
       4) echo "Qwen3.6 27B dense — THE coding king. SWE-bench 77.2%, Terminal-Bench matches Claude 4.5 Opus." ;;
-      5) echo "Qwen3-Coder 30B MoE (3.3B active) — code-specialized, fast inference, 256K context." ;;
+      5) echo "Qwen3.6 27B dense at Q8 quality — SWE-bench 77.2%, near-FP16 precision, 262K context." ;;
     esac
   fi
 }

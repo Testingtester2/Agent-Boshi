@@ -20,8 +20,8 @@
 #   3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB
 #   4  24GB VRAM  qwen3.6:27b            (~17GB)  RTX 4090
 #                 or devstral             (~14GB)  with -Alt
-#   5  32GB VRAM  qwen3-coder:30b (MoE)   (~19GB)  RTX 5090 / A6000
-#                 or qwen2.5-coder:32b    (~22GB)  with -Alt
+#   5  32GB VRAM  qwen3.6:27b-q8_0       (~30GB)  RTX 5090 / A6000 (SWE-bench king Q8)
+#                 or qwen3-coder:30b      (~19GB)  with -Alt (MoE, faster)
 ###############################################################################
 
 param(
@@ -65,7 +65,7 @@ if ($Help) {
     Write-Host "  3  16GB VRAM  devstral (24B)          (~14GB)  RTX 4080 / 4070Ti-16GB"
     Write-Host "  4  24GB VRAM  qwen3.6:27b            (~17GB)  RTX 4090 (SWE-bench king)"
     Write-Host "              or devstral              (~14GB)  with -Alt"
-    Write-Host "  5  32GB VRAM  qwen3-coder:30b (MoE)  (~19GB)  RTX 5090 / A6000"
+    Write-Host "  5  32GB VRAM  qwen3.6:27b-q8_0      (~30GB)  RTX 5090 / A6000 (SWE-bench king Q8)"
     Write-Host "              or qwen2.5-coder:32b     (~22GB)  with -Alt"
     exit 0
 }
@@ -122,7 +122,7 @@ function Get-SuggestedTier([int]$VramMB) {
 }
 
 # -- Disk space check ---------------------------------------------------------
-$ModelDiskGB = @{ 1 = 5; 2 = 7; 3 = 16; 4 = 20; 5 = 24 }
+$ModelDiskGB = @{ 1 = 5; 2 = 7; 3 = 16; 4 = 20; 5 = 35 }
 
 function Test-DiskSpace([int]$NeededGB) {
     try {
@@ -209,7 +209,7 @@ $TierModels = @{
     2 = "qwen2.5-coder:7b"
     3 = "devstral"
     4 = "qwen3.6:27b"
-    5 = "qwen3-coder:30b"
+    5 = "qwen3.6:27b-q8_0"
 }
 
 $TierSizes = @{
@@ -217,7 +217,7 @@ $TierSizes = @{
     2 = "~5GB"
     3 = "~14GB"
     4 = "~17GB"
-    5 = "~19GB"
+    5 = "~30GB"
 }
 
 $TierLabels = @{
@@ -225,7 +225,7 @@ $TierLabels = @{
     2 = "8GB VRAM    (qwen2.5-coder:7b)          - Best coder at this size"
     3 = "16GB VRAM   (devstral 24B)               - Agentic coder, multi-file edits"
     4 = "24GB VRAM   (qwen3.6:27b)                - SWE-bench 77.2%, coding king"
-    5 = "32GB VRAM   (qwen3-coder:30b MoE)          - Code-specialized, 3.3B active"
+    5 = "32GB VRAM   (qwen3.6:27b-q8_0)             - SWE-bench king at Q8 quality"
 }
 
 $TierNotes = @{
@@ -233,17 +233,17 @@ $TierNotes = @{
     2 = "Qwen2.5-Coder 7B - HumanEval leader in 7-8B class, stable and well-tested."
     3 = "Devstral 24B by Mistral + All Hands AI - purpose-built for agentic coding."
     4 = "Qwen3.6 27B dense - THE coding king. SWE-bench 77.2%, matches Claude 4.5 Opus."
-    5 = "Qwen3-Coder 30B MoE (3.3B active) - code-specialized, fast inference, 256K context."
+    5 = "Qwen3.6 27B dense at Q8 - SWE-bench 77.2%, near-FP16 precision, 262K context."
 }
 
 $AltModels = @{
     4 = "devstral"
-    5 = "qwen2.5-coder:32b"
+    5 = "qwen3-coder:30b"
 }
 
 $AltSizes = @{
     4 = "~14GB"
-    5 = "~22GB"
+    5 = "~19GB"
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
