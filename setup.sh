@@ -6,7 +6,7 @@
 #   1. Asks you to pick a model tier based on your GPU VRAM
 #   2. Installs Ollama + Hermes Agent
 #   3. Pulls the selected coding model
-#   4. Deploys Agent Boshi's personality (SOUL.md) and skills
+#   4. Deploys Agent Boshi's personality (SOUL.md)
 #   5. Opens the Hermes dashboard in your browser
 #
 # Usage:
@@ -807,15 +807,11 @@ fi
 
 # ── Deploy Agent Boshi configuration ──────────────────────────
 info "Deploying Agent Boshi configuration to $HERMES_DIR..."
-mkdir -p "$HERMES_DIR/skills"
+mkdir -p "$HERMES_DIR"
 
 # Deploy SOUL.md personality
 cp "$SCRIPT_DIR/hermes/SOUL.md" "$HERMES_DIR/SOUL.md"
 success "Agent Boshi personality deployed."
-
-# Deploy skills
-cp -r "$SCRIPT_DIR/hermes/skills/"* "$HERMES_DIR/skills/" 2>/dev/null || true
-success "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 
 # ── Write Hermes config.yaml ──────────────────────────────────
 # Configure Hermes to use Ollama as a custom endpoint.
@@ -947,7 +943,6 @@ fi
 echo ""
 echo "  Config: $HERMES_DIR/config.yaml"
 echo "  Personality: $HERMES_DIR/SOUL.md"
-echo "  Skills: $HERMES_DIR/skills/"
 echo ""
 echo -e "  ${YELLOW}Agent Boshi guards the Ancient Lore. May your code be free"
 echo -e "  of Shadowcats.${NC}"
