@@ -5,7 +5,7 @@
 #   1. Asks you to pick a model tier based on your GPU VRAM
 #   2. Installs Ollama + Hermes Agent
 #   3. Pulls the selected coding model
-#   4. Deploys Agent Boshi's personality (SOUL.md) and skills
+#   4. Deploys Agent Boshi's personality (SOUL.md)
 #   5. Opens the Hermes dashboard in your browser
 #
 # Usage (run in PowerShell):
@@ -640,18 +640,10 @@ if (Test-Path $venvPip) {
 # -- Deploy Agent Boshi configuration -----------------------------------------
 Write-Info "Deploying Agent Boshi configuration to $hermesDir..."
 New-Item -ItemType Directory -Path $hermesDir -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $hermesDir "skills") -Force | Out-Null
 
 # Copy personality
 Copy-Item "$scriptDir\hermes\SOUL.md" "$hermesDir\SOUL.md" -Force
 Write-Ok "Agent Boshi personality deployed."
-
-# Copy skills
-$skillsDir = "$scriptDir\hermes\skills"
-if (Test-Path $skillsDir) {
-    Copy-Item "$skillsDir\*" "$hermesDir\skills" -Recurse -Force
-}
-Write-Ok "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 
 # -- Write Hermes config.yaml ------------------------------------------------
 # Keep minimal - only documented keys. Hermes uses defaults for the rest.
@@ -774,7 +766,6 @@ if ($InstallMode -eq "sandbox") {
 Write-Host ""
 Write-Host "  Config: $hermesDir\config.yaml"
 Write-Host "  Personality: $hermesDir\SOUL.md"
-Write-Host "  Skills: $hermesDir\skills\"
 Write-Host ""
 Write-Host "  Agent Boshi guards the Ancient Lore. May your code be" -ForegroundColor Yellow
 Write-Host "  free of Shadowcats." -ForegroundColor Yellow

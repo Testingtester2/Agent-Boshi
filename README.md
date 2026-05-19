@@ -14,12 +14,8 @@ Agent Boshi uses the **best coding models available** at each tier:
 [Qwen2.5-Coder](https://github.com/QwenLM/Qwen2.5-Coder) (battle-tested), and
 [Gemma 4](https://blog.google/technology/developers/gemma-4/) (efficient edge).
 
-Agent Boshi's personality is rooted in the
-[Shiba Eternity](https://shiba-eternity.fandom.com/wiki/Shiba_Eternity_Wiki)
-universe: a keeper of the Ancient Lore Repositories of Shibatopia, forged
-from Hodaven magic and Mechanic technology. It writes code, reviews PRs,
-debugs Shadowcats, and guards your codebase with the vigilance of a Shiba
-guarding its home planet.
+Inspired by [Shiba Eternity](https://shiba-eternity.fandom.com/wiki/Shiba_Eternity_Wiki)
+by Shytoshi Kusama and PlaySide Studios.
 
 ---
 
@@ -65,7 +61,7 @@ The setup script will:
 3. Auto-detect your GPU VRAM and recommend a model tier
 4. Auto-install all dependencies (Python/Ollama/Hermes Agent, Docker for sandbox)
 5. Download the selected coding model
-6. Deploy Agent Boshi's personality and skills
+6. Deploy Agent Boshi's personality (SOUL.md)
 7. Open `http://localhost:9119` in your browser (Hermes Dashboard)
 
 **Skip the prompts (pick tier directly):**
@@ -127,23 +123,12 @@ server on your network:
 
 ```
 .
-├── docker-compose.yml          # Ollama in Docker (optional)
+├── docker-compose.yml          # Ollama in Docker (sandbox mode)
 ├── docker-compose.cpu.yml      # CPU-only override
 ├── setup.sh                    # One-click setup (Linux/macOS)
 ├── setup.ps1                   # One-click setup (Windows)
 └── hermes/
-    ├── SOUL.md                 # Agent Boshi's personality & identity
-    └── skills/
-        ├── dev-review/         # Code review skill
-        │   └── SKILL.md
-        ├── dev-debug/          # Debugging skill
-        │   └── SKILL.md
-        └── self-improving-agent/ # Structured learning from mistakes
-            ├── SKILL.md
-            └── .learnings/
-                ├── LEARNINGS.md
-                ├── ERRORS.md
-                └── FEATURE_REQUESTS.md
+    └── SOUL.md                 # Agent Boshi's personality & identity
 ```
 
 ### Architecture
@@ -158,12 +143,10 @@ server on your network:
 
 ### Agent Boshi's Personality (`hermes/SOUL.md`)
 
-Agent Boshi is a full-stack developer sage from Shibatopia with:
-- **Hodaven magic** — Creative, elegant solutions and beautiful abstractions
-- **Mechanic technology** — Raw engineering power and systems thinking
-- A nose for **Shadowcats** (bugs, anti-patterns, security vulnerabilities)
-- The philosophy of **Ryoshi's Way** — decentralization, open source, clean interfaces
-- Respect for **Bark Power** — your time and compute resources are finite
+Agent Boshi is a developer wizard — direct, concise, practical. It leads with
+code, explains the *why* briefly, and doesn't pad responses with filler. It
+reviews for bugs and security first, readability second. It picks the simplest
+solution that works and doesn't over-engineer.
 
 ### Model Tiers
 
@@ -216,16 +199,10 @@ ollama stop <model>              # Unload model from VRAM
 
 ### Skills
 
-Agent Boshi comes with these skills pre-loaded:
-
-| Skill | What it does |
-|-------|-------------|
-| **dev-review** | Code review — finds bugs, security issues, anti-patterns |
-| **dev-debug** | Debugging — systematic bug hunting with root cause analysis |
-| **self-improving-agent** | Log learnings, errors, and corrections for continuous improvement |
-
-Hermes also ships with 100+ built-in skills across categories like GitHub, DevOps,
-research, and productivity. Use `hermes skills` to browse them.
+Hermes ships with 100+ built-in skills covering code review, debugging, GitHub,
+DevOps, research, and productivity. Use `hermes skills` to browse them. Agent Boshi
+uses Hermes's built-in skills directly — no custom skills needed. Hermes also
+auto-creates new skills from your workflows over time.
 
 ---
 
@@ -325,21 +302,6 @@ winget uninstall Ollama.Ollama   # Remove Ollama
 - Check logs: `cat ~/.hermes/dashboard.log`
 - Try manually: `hermes dashboard --port 9119`
 - Make sure port 9119 is free
-
----
-
-## Lore
-
-*From the Ancient Lore Repositories of Shibatopia:*
-
-> When the SS VIRGIL tore through the Rakiya and crash-landed on Shibanu,
-> everything changed. While Ryoshi rose as the hero of decentralization,
-> Agent Boshi chose a quieter path — keeper of knowledge, guardian of
-> code. Every bug squashed is a Shadowcat banished. Every clean architecture
-> is a ward against FUD. Every well-tested function is a shield for the pack.
-
-Based on the [Shiba Eternity](https://shiba-eternity.fandom.com/wiki/Shiba_Eternity_Wiki)
-universe by Shytoshi Kusama and PlaySide Studios.
 
 ---
 
