@@ -189,20 +189,27 @@ if ($Uninstall) {
     Write-Info "Stopping Hermes services..."
     try { Stop-Process -Name hermes -Force -ErrorAction SilentlyContinue } catch {}
 
-    $hermesDir = Join-Path $env:USERPROFILE ".hermes"
-    if (Test-Path $hermesDir) {
-        $rmChoice = Read-Host "  Remove $hermesDir config directory? [y/N]"
-        if ($rmChoice -eq "y" -or $rmChoice -eq "Y") {
-            Remove-Item -Recurse -Force $hermesDir
-            Write-Ok "Removed $hermesDir"
-        } else {
-            Write-Info "Kept $hermesDir"
+    # Try both possible locations (LOCALAPPDATA is current Hermes default, USERPROFILE was legacy)
+    $hermesDirs = @(
+        (Join-Path $env:LOCALAPPDATA "hermes"),
+        (Join-Path $env:USERPROFILE ".hermes")
+    )
+    foreach ($hd in $hermesDirs) {
+        if (Test-Path $hd) {
+            $rmChoice = Read-Host "  Remove $hd config directory? [y/N]"
+            if ($rmChoice -eq "y" -or $rmChoice -eq "Y") {
+                Remove-Item -Recurse -Force $hd
+                Write-Ok "Removed $hd"
+            } else {
+                Write-Info "Kept $hd"
+            }
         }
     }
     # Stop Docker containers if any
+    $uninstallScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
     if ($dockerCmd) {
-        $composeFile = Join-Path $scriptDir "docker-compose.yml"
+        $composeFile = Join-Path $uninstallScriptDir "docker-compose.yml"
         if (Test-Path $composeFile) {
             try { docker compose -f $composeFile down 2>$null } catch {}
             Write-Info "Docker containers stopped."
@@ -561,7 +568,8 @@ if ($RemoteOllama) {
 
 # -- Install Hermes Agent -----------------------------------------------------
 Write-Info "Checking for Hermes Agent..."
-$hermesDir = Join-Path $env:USERPROFILE ".hermes"
+# Hermes Windows install location is %LOCALAPPDATA%\hermes
+$hermesDir = Join-Path $env:LOCALAPPDATA "hermes"
 $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
 
 if ($hermesCmd) {
@@ -586,19 +594,19 @@ if ($hermesCmd) {
     }
     Write-Ok "Python is available."
 
-    # Use the official Windows installer
+    # Use the official Windows installer (NonInteractive + SkipSetup for one-click)
     $installScript = Join-Path $env:TEMP "hermes-install.ps1"
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1" -OutFile $installScript
-    & powershell -ExecutionPolicy Bypass -File $installScript -SkipSetup -SkipBrowser
+    & powershell -ExecutionPolicy Bypass -File $installScript -NonInteractive -SkipSetup
 
     $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
     $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
     if (-not $hermesCmd) {
-        # Check common install locations
-        $venvPath = Join-Path $hermesDir "hermes-agent" ".venv" "Scripts"
-        if (Test-Path (Join-Path $venvPath "hermes.exe")) {
-            $env:PATH = "$venvPath;$env:PATH"
+        # Check the venv install location
+        $venvScripts = Join-Path $hermesDir "hermes-agent\.venv\Scripts"
+        if (Test-Path (Join-Path $venvScripts "hermes.exe")) {
+            $env:PATH = "$venvScripts;$env:PATH"
         } else {
             Write-Err "Hermes Agent installation failed or hermes is not on PATH."
             Write-Host "  Check: $hermesDir\hermes-agent\.venv\Scripts\"
@@ -606,6 +614,27 @@ if ($hermesCmd) {
         }
     }
     Write-Ok "Hermes Agent installed."
+}
+
+# -- Install web dashboard extras --------------------------------------------
+# The web dashboard is NOT included by default. Needs fastapi + uvicorn + pywinpty.
+Write-Info "Installing web dashboard dependencies..."
+$venvPip = Join-Path $hermesDir "hermes-agent\.venv\Scripts\pip.exe"
+$hermesSrc = Join-Path $hermesDir "hermes-agent"
+if (Test-Path $venvPip) {
+    if (Test-Path (Join-Path $hermesSrc "pyproject.toml")) {
+        try {
+            & $venvPip install -e "$hermesSrc[web,pty]" -q
+        } catch {
+            & $venvPip install fastapi uvicorn pywinpty -q
+        }
+    } else {
+        & $venvPip install fastapi uvicorn pywinpty -q
+    }
+    Write-Ok "Web dashboard dependencies installed."
+} else {
+    Write-Warn "Could not locate Hermes venv pip. Web dashboard may not work."
+    Write-Warn "Manually run: pip install 'hermes-agent[web,pty]'"
 }
 
 # -- Deploy Agent Boshi configuration -----------------------------------------
@@ -625,6 +654,7 @@ if (Test-Path $skillsDir) {
 Write-Ok "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 
 # -- Write Hermes config.yaml ------------------------------------------------
+# Keep minimal - only documented keys. Hermes uses defaults for the rest.
 $ollamaApiUrl = "$OllamaUrl/v1"
 
 if ($InstallMode -eq "sandbox") {
@@ -633,7 +663,6 @@ terminal:
   backend: "docker"
   docker_image: "nikolaik/python-nodejs:python3.11-nodejs20"
   timeout: 180
-  lifetime_seconds: 300
 "@
 } else {
     $terminalBlock = @"
@@ -641,24 +670,23 @@ terminal:
   backend: "local"
   cwd: "."
   timeout: 180
-  lifetime_seconds: 300
 "@
 }
 
 $hermesConfig = @"
 # Agent Boshi - Hermes Agent Configuration
-# Configured for local Ollama backend
+# Backend: local Ollama at $OllamaUrl
 # Install mode: $InstallMode
 
 model:
   default: "$Model"
   provider: "custom"
   base_url: "$ollamaApiUrl"
+  api_key: "ollama"
 
 agent:
   max_turns: 60
   reasoning_effort: "medium"
-  verbose: false
 
 $terminalBlock
 
@@ -667,27 +695,6 @@ memory:
   user_profile_enabled: true
   memory_char_limit: 2200
   user_char_limit: 1375
-  nudge_interval: 10
-  flush_min_turns: 6
-
-skills:
-  creation_nudge_interval: 15
-
-compression:
-  enabled: true
-  threshold: 0.50
-  target_ratio: 0.20
-  protect_last_n: 20
-  protect_first_n: 3
-
-display:
-  compact: false
-  tool_progress: all
-  streaming: true
-  skin: default
-
-platform_toolsets:
-  cli: [hermes-cli]
 "@
 Set-Content -Path (Join-Path $hermesDir "config.yaml") -Value $hermesConfig -NoNewline
 Write-Ok "Config deployed: model=$Model, ollama=$OllamaUrl"

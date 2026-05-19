@@ -760,20 +760,49 @@ else
     done
   fi
 
-  if ! command -v hermes &> /dev/null; then
-    # Check common install locations
-    if [ -f "$HERMES_DIR/hermes-agent/.venv/bin/hermes" ]; then
-      export PATH="$HERMES_DIR/hermes-agent/.venv/bin:$PATH"
-    elif [ -f "/usr/local/bin/hermes" ]; then
-      true
-    else
-      error "Hermes Agent installation failed or hermes is not on PATH."
-      echo "  Try: export PATH=\"\$HOME/.hermes/hermes-agent/.venv/bin:\$PATH\""
-      echo "  Then re-run this script."
-      exit 1
-    fi
+  # Locate hermes in common install locations
+  HERMES_BIN=""
+  if command -v hermes &> /dev/null; then
+    HERMES_BIN="$(command -v hermes)"
+  elif [ -x "$HOME/.local/bin/hermes" ]; then
+    HERMES_BIN="$HOME/.local/bin/hermes"
+    export PATH="$HOME/.local/bin:$PATH"
+  elif [ -x "$HERMES_DIR/hermes-agent/.venv/bin/hermes" ]; then
+    HERMES_BIN="$HERMES_DIR/hermes-agent/.venv/bin/hermes"
+    export PATH="$HERMES_DIR/hermes-agent/.venv/bin:$PATH"
   fi
-  success "Hermes Agent installed."
+
+  if [ -z "$HERMES_BIN" ]; then
+    error "Hermes Agent installation failed or hermes is not on PATH."
+    echo "  Try: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "  Then re-run this script."
+    exit 1
+  fi
+  success "Hermes Agent installed at: $HERMES_BIN"
+fi
+
+# ── Install web dashboard extras ────────────────────────────────
+# The web dashboard is NOT included by default. It needs fastapi + uvicorn.
+info "Installing web dashboard dependencies (fastapi, uvicorn, ptyprocess)..."
+HERMES_VENV_PIP=""
+if [ -x "$HERMES_DIR/hermes-agent/.venv/bin/pip" ]; then
+  HERMES_VENV_PIP="$HERMES_DIR/hermes-agent/.venv/bin/pip"
+elif [ -x "/usr/local/lib/hermes-agent/.venv/bin/pip" ]; then
+  HERMES_VENV_PIP="/usr/local/lib/hermes-agent/.venv/bin/pip"
+fi
+
+if [ -n "$HERMES_VENV_PIP" ]; then
+  HERMES_SRC_DIR="$(dirname "$(dirname "$HERMES_VENV_PIP")")"
+  if [ -f "$HERMES_SRC_DIR/pyproject.toml" ]; then
+    "$HERMES_VENV_PIP" install -e "$HERMES_SRC_DIR[web,pty]" -q 2>&1 | tail -3 || \
+      "$HERMES_VENV_PIP" install fastapi uvicorn ptyprocess -q 2>&1 | tail -3
+  else
+    "$HERMES_VENV_PIP" install fastapi uvicorn ptyprocess -q 2>&1 | tail -3
+  fi
+  success "Web dashboard dependencies installed."
+else
+  warn "Could not locate Hermes venv pip. Web dashboard may not work."
+  warn "Manually run: pip install 'hermes-agent[web,pty]'"
 fi
 
 # ── Deploy Agent Boshi configuration ──────────────────────────
@@ -789,7 +818,8 @@ cp -r "$SCRIPT_DIR/hermes/skills/"* "$HERMES_DIR/skills/" 2>/dev/null || true
 success "Skills deployed (dev-review, dev-debug, self-improving-agent)."
 
 # ── Write Hermes config.yaml ──────────────────────────────────
-# Configure Hermes to use Ollama as a custom endpoint
+# Configure Hermes to use Ollama as a custom endpoint.
+# Keep this minimal — only documented keys. Hermes uses defaults for the rest.
 OLLAMA_API_URL="${OLLAMA_URL}/v1"
 
 # Terminal backend: sandbox mode uses Docker, local mode uses native
@@ -797,30 +827,28 @@ if [ "$INSTALL_MODE" = "sandbox" ]; then
   TERMINAL_BLOCK="terminal:
   backend: \"docker\"
   docker_image: \"nikolaik/python-nodejs:python3.11-nodejs20\"
-  timeout: 180
-  lifetime_seconds: 300"
+  timeout: 180"
 else
   TERMINAL_BLOCK="terminal:
   backend: \"local\"
   cwd: \".\"
-  timeout: 180
-  lifetime_seconds: 300"
+  timeout: 180"
 fi
 
 cat > "$HERMES_DIR/config.yaml" << HERMESCFG
 # Agent Boshi — Hermes Agent Configuration
-# Configured for local Ollama backend
+# Backend: local Ollama at $OLLAMA_URL
 # Install mode: $INSTALL_MODE
 
 model:
   default: "$MODEL"
   provider: "custom"
   base_url: "$OLLAMA_API_URL"
+  api_key: "ollama"
 
 agent:
   max_turns: 60
   reasoning_effort: "medium"
-  verbose: false
 
 $TERMINAL_BLOCK
 
@@ -829,27 +857,6 @@ memory:
   user_profile_enabled: true
   memory_char_limit: 2200
   user_char_limit: 1375
-  nudge_interval: 10
-  flush_min_turns: 6
-
-skills:
-  creation_nudge_interval: 15
-
-compression:
-  enabled: true
-  threshold: 0.50
-  target_ratio: 0.20
-  protect_last_n: 20
-  protect_first_n: 3
-
-display:
-  compact: false
-  tool_progress: all
-  streaming: true
-  skin: default
-
-platform_toolsets:
-  cli: [hermes-cli]
 HERMESCFG
 
 success "Config deployed: model=$MODEL, ollama=$OLLAMA_URL"
